@@ -1,4 +1,4 @@
-# EdgeAgent Android - 端侧优先 AI 手机助手
+# VisionAgent Android - 端侧优先 AI 手机助手
 
 <div align="center">
 
@@ -16,7 +16,7 @@
 
 ## 📖 项目简介
 
-EdgeAgent 是一个面向 2026 年 AI 大厂面试的**顶级项目作品集**，展示了端侧 AI 工程落地能力和移动端架构设计水平。
+VisionAgent 是一个面向 2026 年 AI 大厂面试的**顶级项目作品集**，展示了端侧 AI 工程落地能力和移动端架构设计水平。
 
 ### 核心特性
 
@@ -70,7 +70,7 @@ EdgeAgent 是一个面向 2026 年 AI 大厂面试的**顶级项目作品集**�
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                   Service Layer                              │
-│         EdgeAgentAccessibilityService (无障碍服务)           │
+│         VisionAgent AccessibilityService (无障碍服务)        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -138,7 +138,7 @@ object CloudConfig {
 
 4. **开启无障碍权限**
 
-设置 → 无障碍 → EdgeAgent → 开启服务
+设置 → 无障碍 → VisionAgent → 开启服务
 
 5. **测试功能**
 

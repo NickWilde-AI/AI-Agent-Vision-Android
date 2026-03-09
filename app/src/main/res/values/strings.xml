@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">EdgeAgent</string>
-    <string name="accessibility_service_description">EdgeAgent AI 助手需要无障碍权限来：\n1. 捕获屏幕内容进行智能分析\n2. 执行自动化操作（点击、滑动等）\n3. 提供端侧 AI 辅助功能\n\n所有数据优先在本地处理，保护您的隐私。</string>
+    <string name="app_name">VisionAgent</string>
+    <string name="accessibility_service_description">VisionAgent AI 助手需要无障碍权限来：\n1. 捕获屏幕内容进行智能分析\n2. 执行自动化操作（点击、滑动等）\n3. 提供端侧 AI 辅助功能\n\n所有数据优先在本地处理，保护您的隐私。</string>
 </resources>
