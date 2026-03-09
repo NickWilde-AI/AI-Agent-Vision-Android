@@ -12,11 +12,46 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="EdgeAgent Android"
+            android:text="VisionAgent Android"
             android:textSize="24sp"
             android:textStyle="bold"
             android:gravity="center"
             android:layout_marginBottom="24dp" />
+
+        <!-- 无障碍权限状态 -->
+        <TextView
+            android:id="@+id/tv_accessibility_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:color/holo_red_light"
+            android:padding="12dp"
+            android:text="❌ 无障碍权限未开启"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:layout_marginBottom="8dp" />
+
+        <!-- 开启无障碍权限按钮 -->
+        <Button
+            android:id="@+id/btn_open_accessibility"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔧 开启无障碍权限"
+            android:textSize="16sp"
+            android:backgroundTint="@android:color/holo_orange_dark"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tv_build_time"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:color/darker_gray"
+            android:padding="8dp"
+            android:text="编译时间: 加载中..."
+            android:textSize="12sp"
+            android:gravity="center"
+            android:layout_marginBottom="8dp" />
 
         <TextView
             android:id="@+id/tv_model_info"
@@ -57,46 +92,81 @@
             android:padding="12dp"
             android:text="最后响应: 无"
             android:textSize="14sp"
-            android:layout_marginBottom="16dp" />
-
-        <TextView
-            android:id="@+id/tv_log"
-            android:layout_width="match_parent"
-            android:layout_height="200dp"
-            android:background="@android:color/darker_gray"
-            android:padding="12dp"
-            android:text="执行日志:\n等待操作..."
-            android:textSize="12sp"
-            android:textColor="@android:color/white"
-            android:scrollbars="vertical"
             android:layout_marginBottom="24dp" />
+
+        <!-- 自定义指令输入区域 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="💬 自定义指令"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/et_custom_prompt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="输入指令，例如：打开微信发送给 Nick Chen 消息"
+            android:text="打开微信发送给 Nick Chen 消息"
+            android:minHeight="80dp"
+            android:gravity="top|start"
+            android:padding="12dp"
+            android:background="@android:drawable/edit_text"
+            android:textSize="16sp"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btn_execute_custom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🚀 执行指令"
+            android:textSize="16sp"
+            android:backgroundTint="@android:color/holo_blue_dark"
+            android:layout_marginBottom="24dp" />
+
+        <!-- 快捷测试按钮 -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⚡ 快捷测试"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
 
         <Button
             android:id="@+id/btn_test1"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="测试推理：点击屏幕中心"
-            android:layout_marginBottom="12dp" />
+            android:text="测试：点击屏幕中心"
+            android:layout_marginBottom="8dp" />
 
         <Button
             android:id="@+id/btn_test2"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="测试推理：向上滑动"
-            android:layout_marginBottom="12dp" />
+            android:text="测试：向上滑动"
+            android:layout_marginBottom="8dp" />
 
         <Button
             android:id="@+id/btn_test3"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="测试推理：打开 Chrome"
-            android:layout_marginBottom="12dp" />
+            android:text="测试：打开微信"
+            android:layout_marginBottom="8dp" />
 
         <Button
             android:id="@+id/btn_test4"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="测试推理：打开 YouTube" />
+            android:text="测试：打开美团"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_test5"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="测试：打开电话" />
 
     </LinearLayout>
 

@@ -119,11 +119,28 @@ class MockModelEngine private constructor() : ILocalModelEngine {
             }
             
             normalizedPrompt.contains("打开") -> {
-                val appRegex = """打开(.+?)(?:应用|app)?""".toRegex()
+                val appRegex = """打开(.+?)(?:应用|app)?$""".toRegex()
                 val appName = appRegex.find(normalizedPrompt)?.groupValues?.getOrNull(1)?.trim() ?: "未知应用"
                 
+                // 映射常见应用名称到真实包名
+                val packageName = when {
+                    appName.contains("微信") -> "com.tencent.mm"
+                    appName.contains("美团") -> "com.sankuai.meituan"
+                    appName.contains("电话") || appName.contains("拨号") -> "com.android.contacts"  // 小米手机使用联系人应用
+                    appName.contains("联系人") -> "com.android.contacts"
+                    appName.contains("支付宝") -> "com.eg.android.AlipayGphone"
+                    appName.contains("淘宝") -> "com.taobao.taobao"
+                    appName.contains("抖音") -> "com.ss.android.ugc.aweme"
+                    appName.contains("qq") || appName.contains("QQ") -> "com.tencent.mobileqq"
+                    appName.contains("chrome") || appName.contains("浏览器") -> "com.android.chrome"
+                    appName.contains("设置") -> "com.android.settings"
+                    appName.contains("相机") || appName.contains("照相") -> "com.android.camera"
+                    appName.contains("相册") || appName.contains("图库") -> "com.miui.gallery"
+                    else -> "com.example.$appName"
+                }
+                
                 ActionType.OPEN_APP to ActionParams.OpenApp(
-                    packageName = "com.example.$appName"
+                    packageName = packageName
                 )
             }
             

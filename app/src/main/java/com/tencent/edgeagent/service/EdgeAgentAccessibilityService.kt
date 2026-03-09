@@ -91,10 +91,23 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
             
             // 提取 UI 树
             val rootNode = rootInActiveWindow
-            val uiTreeText = uiTreeExtractor.extractUITree(rootNode)
-            val currentPackage = rootNode?.packageName?.toString()
+            if (rootNode == null) {
+                Timber.w("rootInActiveWindow 为 null，可能无障碍权限未正确授予")
+                // 即使 rootNode 为 null，也返回基本的屏幕数据
+                val bitmap = screenCaptureManager.obtainBitmap(screenWidth, screenHeight)
+                return ScreenData(
+                    bitmap = bitmap,
+                    uiTreeText = null,
+                    screenWidth = screenWidth,
+                    screenHeight = screenHeight,
+                    currentPackage = null
+                )
+            }
             
-            rootNode?.recycle()
+            val uiTreeText = uiTreeExtractor.extractUITree(rootNode)
+            val currentPackage = rootNode.packageName?.toString()
+            
+            rootNode.recycle()
             
             // 创建一个空白 Bitmap（实际项目中需要真实截图）
             val bitmap = screenCaptureManager.obtainBitmap(screenWidth, screenHeight)

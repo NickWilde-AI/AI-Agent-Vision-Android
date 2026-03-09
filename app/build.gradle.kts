@@ -3,6 +3,10 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 android {
     namespace = "com.tencent.edgeagent"
     compileSdk = 35
@@ -19,6 +23,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        
+        // 添加编译时间
+        val buildTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
     }
 
     buildTypes {

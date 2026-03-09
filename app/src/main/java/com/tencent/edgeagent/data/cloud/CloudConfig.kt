@@ -31,7 +31,7 @@ object CloudConfig {
      * - CloudProvider.ALIYUN（阿里云百炼）
      * - CloudProvider.DOUBAO（豆包）
      */
-    val PROVIDER = CloudProvider.DEEPSEEK
+    val PROVIDER = CloudProvider.ALIYUN
     
     /**
      * DeepSeek API Key
@@ -46,7 +46,7 @@ object CloudConfig {
     /**
      * 阿里云 API Key
      */
-    const val ALIYUN_API_KEY = "YOUR_ALIYUN_API_KEY_HERE"
+    const val ALIYUN_API_KEY = "sk-8568a999e0ae4ebda36ce4fe1294bca4"
     
     /**
      * 豆包 API Key

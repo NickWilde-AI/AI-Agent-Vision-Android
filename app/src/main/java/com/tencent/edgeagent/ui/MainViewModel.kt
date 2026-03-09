@@ -11,8 +11,10 @@ import com.tencent.edgeagent.data.execution.ExecutionResult
 import com.tencent.edgeagent.data.inference.ILocalModelEngine
 import com.tencent.edgeagent.data.inference.MockModelEngine
 import com.tencent.edgeagent.data.inference.ModelInfo
+import com.tencent.edgeagent.domain.agent.AgentExecutor
 import com.tencent.edgeagent.domain.agent.AgentStateMachine
 import com.tencent.edgeagent.domain.agent.IntentRouter
+import com.tencent.edgeagent.domain.agent.TaskExecutionResult
 import com.tencent.edgeagent.domain.model.*
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
 import kotlinx.coroutines.flow.*
@@ -29,6 +31,7 @@ class MainViewModel : ViewModel() {
     private val localModelEngine: ILocalModelEngine = MockModelEngine.getInstance()
     private val cloudFallbackManager: CloudFallbackManager = CloudFallbackManager.getInstance()
     private val actionExecutor: ActionExecutor = ActionExecutor.getInstance()
+    private val agentExecutor: AgentExecutor = AgentExecutor.getInstance() // 新增：多轮对话执行器
 
     val agentState: StateFlow<AgentState> = stateMachine.currentState
         .stateIn(
@@ -95,89 +98,145 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    /**
+     * 测试推理（新版：支持多轮对话）
+     */
     fun testInference(userInput: String) {
         viewModelScope.launch {
             try {
-                Timber.d("开始测试推理: $userInput")
+                Timber.d("开始执行任务: $userInput")
+                _executionResult.value = "🚀 开始执行..."
 
                 stateMachine.handleEvent(AgentEvent.UserTriggered(userInput))
 
+                // 判断是否使用多轮对话模式
                 val intent = intentRouter.parseIntent(userInput)
-                Timber.d("意图解析: ${intent.type}")
+                val useMultiRound = shouldUseMultiRound(userInput, intent)
 
-                // 尝试获取真实屏幕数据
-                val screenData = captureRealScreenData() ?: createMockScreenData()
-
-                stateMachine.handleEvent(AgentEvent.PerceptionComplete(screenData))
-
-                // 本地推理
-                val localResponse = localModelEngine.inference(
-                    image = screenData.bitmap,
-                    prompt = userInput,
-                    uiTree = screenData.uiTreeText
-                )
-
-                _lastResponse.value = localResponse
-                Timber.d("本地推理完成: action=${localResponse.action}, confidence=${localResponse.confidence}")
-
-                stateMachine.handleEvent(AgentEvent.LocalReasoningComplete(localResponse))
-
-                // 判断是否需要云端兜底
-                var finalResponse = localResponse
-                
-                if (intentRouter.shouldUseCloud(intent, localResponse.confidence)) {
-                    Timber.d("置信度不足或需要云端处理，调用云端 API")
-                    _executionResult.value = "🌐 调用云端 API..."
-                    
-                    try {
-                        if (cloudFallbackManager.isEnabled()) {
-                            val cloudResponse = cloudFallbackManager.inference(
-                                image = screenData.bitmap,
-                                prompt = userInput,
-                                uiTree = screenData.uiTreeText
-                            )
-                            
-                            finalResponse = cloudResponse
-                            _lastResponse.value = cloudResponse
-                            Timber.d("云端推理完成: action=${cloudResponse.action}, confidence=${cloudResponse.confidence}")
-                            
-                            stateMachine.handleEvent(AgentEvent.CloudReasoningComplete(cloudResponse))
-                            _executionResult.value = "✅ 云端推理成功"
-                        } else {
-                            Timber.w("云端服务未启用，使用本地推理结果")
-                            _executionResult.value = "⚠️ 云端未启用，使用本地结果"
-                        }
-                    } catch (e: CloudApiException) {
-                        Timber.e(e, "云端推理失败，使用本地结果")
-                        _executionResult.value = "❌ 云端失败: ${e.message}，使用本地结果"
-                    }
-                }
-                
-                // 执行真实操作
-                Timber.d("开始执行动作: ${finalResponse.action}")
-                val executionResult = actionExecutor.execute(finalResponse)
-                
-                when (executionResult) {
-                    is ExecutionResult.Success -> {
-                        Timber.d("执行成功: ${executionResult.message}")
-                        _executionResult.value = "✅ ${executionResult.message}"
-                        stateMachine.handleEvent(AgentEvent.ExecutionComplete)
-                    }
-                    is ExecutionResult.Failure -> {
-                        Timber.e("执行失败: ${executionResult.message}")
-                        _executionResult.value = "❌ ${executionResult.message}"
-                        stateMachine.handleEvent(AgentEvent.Error(
-                            Exception(executionResult.message),
-                            executionResult.message
-                        ))
-                    }
+                if (useMultiRound && cloudFallbackManager.isEnabled()) {
+                    // 多轮对话模式（豆包 Agent 效果）
+                    Timber.d("使用多轮对话模式")
+                    executeMultiRoundTask(userInput)
+                } else {
+                    // 单轮模式（原有逻辑）
+                    Timber.d("使用单轮模式")
+                    executeSingleRoundTask(userInput, intent)
                 }
 
             } catch (e: Exception) {
-                Timber.e(e, "推理测试失败")
+                Timber.e(e, "任务执行失败")
                 _executionResult.value = "❌ 异常: ${e.message}"
                 stateMachine.handleEvent(AgentEvent.Error(e, e.message ?: "未知错误"))
             }
+        }
+    }
+
+    /**
+     * 多轮对话模式执行
+     */
+    private suspend fun executeMultiRoundTask(userGoal: String) {
+        val result = agentExecutor.executeTask(userGoal) { progress ->
+            _executionResult.value = progress
+        }
+
+        when (result) {
+            is TaskExecutionResult.Success -> {
+                Timber.d("任务完成，共 ${result.rounds} 轮对话")
+                _executionResult.value = "✅ 任务完成！共 ${result.rounds} 轮对话"
+                stateMachine.handleEvent(AgentEvent.ExecutionComplete)
+            }
+            is TaskExecutionResult.Failure -> {
+                Timber.e("任务失败: ${result.reason}")
+                _executionResult.value = "❌ 任务失败: ${result.reason}"
+                stateMachine.handleEvent(AgentEvent.Error(
+                    Exception(result.reason),
+                    result.reason
+                ))
+            }
+        }
+    }
+
+    /**
+     * 单轮模式执行（原有逻辑）
+     */
+    private suspend fun executeSingleRoundTask(userInput: String, intent: AgentIntent) {
+        // 尝试获取真实屏幕数据
+        val screenData = captureRealScreenData() ?: createMockScreenData()
+
+        stateMachine.handleEvent(AgentEvent.PerceptionComplete(screenData))
+
+        // 本地推理
+        val localResponse = localModelEngine.inference(
+            image = screenData.bitmap,
+            prompt = userInput,
+            uiTree = screenData.uiTreeText
+        )
+
+        _lastResponse.value = localResponse
+        Timber.d("本地推理完成: action=${localResponse.action}, confidence=${localResponse.confidence}")
+
+        stateMachine.handleEvent(AgentEvent.LocalReasoningComplete(localResponse))
+
+        // 判断是否需要云端兜底
+        var finalResponse = localResponse
+        
+        if (intentRouter.shouldUseCloud(intent, localResponse.confidence)) {
+            Timber.d("置信度不足或需要云端处理，调用云端 API")
+            _executionResult.value = "🌐 调用云端 API..."
+            
+            try {
+                if (cloudFallbackManager.isEnabled()) {
+                    val cloudResponse = cloudFallbackManager.inference(
+                        image = screenData.bitmap,
+                        prompt = userInput,
+                        uiTree = screenData.uiTreeText
+                    )
+                    
+                    finalResponse = cloudResponse
+                    _lastResponse.value = cloudResponse
+                    Timber.d("云端推理完成: action=${cloudResponse.action}, confidence=${cloudResponse.confidence}")
+                    
+                    stateMachine.handleEvent(AgentEvent.CloudReasoningComplete(cloudResponse))
+                    _executionResult.value = "✅ 云端推理成功"
+                } else {
+                    Timber.w("云端服务未启用，使用本地推理结果")
+                    _executionResult.value = "⚠️ 云端未启用，使用本地结果"
+                }
+            } catch (e: CloudApiException) {
+                Timber.e(e, "云端推理失败，使用本地结果")
+                _executionResult.value = "❌ 云端失败: ${e.message}，使用本地结果"
+            }
+        }
+        
+        // 执行真实操作
+        Timber.d("开始执行动作: ${finalResponse.action}")
+        val executionResult = actionExecutor.execute(finalResponse)
+        
+        when (executionResult) {
+            is ExecutionResult.Success -> {
+                Timber.d("执行成功: ${executionResult.message}")
+                _executionResult.value = "✅ ${executionResult.message}"
+                stateMachine.handleEvent(AgentEvent.ExecutionComplete)
+            }
+            is ExecutionResult.Failure -> {
+                Timber.e("执行失败: ${executionResult.message}")
+                _executionResult.value = "❌ ${executionResult.message}"
+                stateMachine.handleEvent(AgentEvent.Error(
+                    Exception(executionResult.message),
+                    executionResult.message
+                ))
+            }
+        }
+    }
+
+    /**
+     * 判断是否使用多轮对话模式
+     */
+    private fun shouldUseMultiRound(userInput: String, intent: AgentIntent): Boolean {
+        // 包含多个动作关键词的复杂任务
+        val complexKeywords = listOf("发送", "搜索", "查找", "打开.*并", "然后", "接着")
+        return complexKeywords.any { keyword ->
+            userInput.contains(Regex(keyword))
         }
     }
     

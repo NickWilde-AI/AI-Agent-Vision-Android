@@ -27,10 +27,7 @@ class CloudFallbackManager private constructor() {
         try {
             primaryClient = when (provider) {
                 CloudProvider.DEEPSEEK -> DeepSeekClient(apiKey)
-                CloudProvider.ALIYUN -> {
-                    Timber.w("阿里云客户端暂未实现，使用 DeepSeek")
-                    DeepSeekClient(apiKey)
-                }
+                CloudProvider.ALIYUN -> AliyunClient(apiKey)
                 CloudProvider.DOUBAO -> {
                     Timber.w("豆包客户端暂未实现，使用 DeepSeek")
                     DeepSeekClient(apiKey)

@@ -11,6 +11,28 @@
     
     <!-- 悬浮窗权限（后续使用） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    
+    <!-- 查询所有应用包权限（Android 11+） -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- 包可见性声明（Android 11+）- 声明需要启动的应用 -->
+    <queries>
+        <!-- 允许查询所有应用 -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+        </intent>
+        
+        <!-- 常用应用包名 -->
+        <package android:name="com.tencent.mm" /> <!-- 微信 -->
+        <package android:name="com.sankuai.meituan" /> <!-- 美团 -->
+        <package android:name="com.android.contacts" /> <!-- 电话 -->
+        <package android:name="com.eg.android.AlipayGphone" /> <!-- 支付宝 -->
+        <package android:name="com.taobao.taobao" /> <!-- 淘宝 -->
+        <package android:name="com.ss.android.ugc.aweme" /> <!-- 抖音 -->
+        <package android:name="com.tencent.mobileqq" /> <!-- QQ -->
+        <package android:name="com.android.chrome" /> <!-- Chrome -->
+    </queries>
 
     <application
         android:name=".EdgeAgentApplication"
