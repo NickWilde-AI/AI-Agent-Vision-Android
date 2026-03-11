@@ -116,6 +116,11 @@ class ActionExecutor private constructor() {
 
     /**
      * 执行输入文本
+     *
+     * 策略：
+     * 1. 如果有坐标，先点击对应位置让输入框获取焦点
+     * 2. 遍历 UI 树找到焦点节点，使用 AccessibilityNodeInfo.ACTION_SET_TEXT 输入（API 21+）
+     * 3. 若 ACTION_SET_TEXT 失败，降级为剪贴板方案：写入剪贴板 → ACTION_PASTE
      */
     private suspend fun executeInputText(
         service: EdgeAgentAccessibilityService,
@@ -123,17 +128,112 @@ class ActionExecutor private constructor() {
     ): ExecutionResult {
         return when (params) {
             is ActionParams.InputText -> {
-                // 先点击输入框（如果有坐标）
-                if (params.targetX != null && params.targetY != null) {
-                    service.performClick(params.targetX, params.targetY, "点击输入框")
-                    kotlinx.coroutines.delay(300) // 等待输入框获得焦点
+                try {
+                    // Step 1: 点击目标位置让输入框获取焦点
+                    if (params.targetX != null && params.targetY != null) {
+                        service.performClick(params.targetX, params.targetY, "点击输入框")
+                        kotlinx.coroutines.delay(400)
+                    }
+
+                    // Step 2: 查找焦点节点并直接设置文本
+                    val rootNode = service.rootInActiveWindow
+                    if (rootNode != null) {
+                        val focusedNode = findFocusedEditableNode(rootNode)
+                        if (focusedNode != null) {
+                            val args = android.os.Bundle().apply {
+                                putCharSequence(
+                                    android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                                    params.text
+                                )
+                            }
+                            val success = focusedNode.performAction(
+                                android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
+                                args
+                            )
+                            focusedNode.recycle()
+                            rootNode.recycle()
+                            if (success) {
+                                Timber.d("ACTION_SET_TEXT 成功: ${params.text}")
+                                return ExecutionResult.Success("输入文本成功: ${params.text}")
+                            }
+                            Timber.w("ACTION_SET_TEXT 失败，降级为剪贴板")
+                        } else {
+                            rootNode.recycle()
+                            Timber.w("未找到焦点节点，降级为剪贴板")
+                        }
+                    }
+
+                    // Step 3: 降级 — 剪贴板粘贴方案
+                    val clipboardSuccess = pasteViaClipboard(service, params.text)
+                    if (clipboardSuccess) {
+                        ExecutionResult.Success("通过剪贴板输入文本: ${params.text}")
+                    } else {
+                        ExecutionResult.Failure("文本输入失败")
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "输入文本异常")
+                    ExecutionResult.Failure("输入文本异常: ${e.message}")
                 }
-                
-                // TODO: 实现文本输入（需要使用 AccessibilityNodeInfo 或剪贴板）
-                Timber.w("文本输入功能待实现: ${params.text}")
-                ExecutionResult.Success("文本输入待实现")
             }
             else -> ExecutionResult.Failure("参数类型错误")
+        }
+    }
+
+    /**
+     * 在 UI 树中递归查找已获焦点的可编辑节点
+     */
+    private fun findFocusedEditableNode(
+        node: android.view.accessibility.AccessibilityNodeInfo
+    ): android.view.accessibility.AccessibilityNodeInfo? {
+        // 优先：当前节点已获焦点且可编辑
+        if (node.isFocused && node.isEditable) return node
+        // 次优：当前节点可编辑（即使未显式获焦）
+        if (node.isEditable && node.isEnabled) return node
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val result = findFocusedEditableNode(child)
+            if (result != null) {
+                child.recycle()
+                return result
+            }
+            child.recycle()
+        }
+        return null
+    }
+
+    /**
+     * 剪贴板粘贴降级方案
+     */
+    private suspend fun pasteViaClipboard(
+        service: EdgeAgentAccessibilityService,
+        text: String
+    ): Boolean {
+        return try {
+            val context = service.applicationContext
+            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                    as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("VisionAgent", text)
+            clipboard.setPrimaryClip(clip)
+            kotlinx.coroutines.delay(200)
+
+            // 找到焦点节点执行粘贴
+            val rootNode = service.rootInActiveWindow
+            if (rootNode != null) {
+                val focusedNode = findFocusedEditableNode(rootNode)
+                val success = focusedNode?.performAction(
+                    android.view.accessibility.AccessibilityNodeInfo.ACTION_PASTE
+                ) ?: false
+                focusedNode?.recycle()
+                rootNode.recycle()
+                Timber.d("剪贴板粘贴结果: $success")
+                success
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "剪贴板粘贴失败")
+            false
         }
     }
 
@@ -167,7 +267,8 @@ class ActionExecutor private constructor() {
      * 策略：
      * 通过无障碍服务在桌面查找应用图标并点击（真正的 Agent 行为）
      * 
-     * ⚠️ 注意：不要每次都按 Home 键，避免打断应用启动
+     * 修复点4: 添加应用启动等待，避免立即按 Home 打断
+     * 修复点5: 改进当前应用检测逻辑
      */
     private suspend fun executeOpenApp(params: ActionParams): ExecutionResult {
         return when (params) {
@@ -183,16 +284,23 @@ class ActionExecutor private constructor() {
                     val appName = getAppName(context, params.packageName)
                     
                     if (appName != null) {
-                        Timber.d("尝试在桌面查找应用图标: $appName (${params.packageName})")
+                        Timber.d("尝试打开应用: $appName (${params.packageName})")
                         
-                        // 检查当前是否已经在目标应用
-                        val currentPackage = service.rootInActiveWindow?.packageName?.toString()
+                        // 修复点5: 改进当前应用检测，增加重试机制
+                        var currentPackage: String? = null
+                        for (i in 0..2) { // 尝试3次获取当前包名
+                            currentPackage = service.rootInActiveWindow?.packageName?.toString()
+                            if (currentPackage != null) break
+                            kotlinx.coroutines.delay(200) // 等待200ms后重试
+                        }
+                        
                         if (currentPackage == params.packageName) {
                             Timber.d("已经在目标应用内: $appName，无需重复打开")
                             return ExecutionResult.Success("已在应用内: $appName")
                         }
                         
                         // 先确保在桌面（按 Home 键）
+                        Timber.d("按 Home 键回到桌面")
                         service.performHome()
                         kotlinx.coroutines.delay(800) // 等待桌面加载
                         
@@ -201,6 +309,8 @@ class ActionExecutor private constructor() {
                         
                         if (iconFound) {
                             Timber.d("通过无障碍服务点击应用图标成功: $appName")
+                            // 修复点4: 等待应用启动，不要立即返回
+                            kotlinx.coroutines.delay(1500) // 等待1.5秒让应用启动
                             return ExecutionResult.Success("通过点击图标打开应用: $appName")
                         } else {
                             Timber.w("未在桌面找到应用图标: $appName")

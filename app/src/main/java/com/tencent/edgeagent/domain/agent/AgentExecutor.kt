@@ -177,32 +177,44 @@ class AgentExecutor private constructor() {
     
     /**
      * 检测是否重复操作（防止死循环）
+     * 
+     * 修复点1: 支持检测 WAIT 重复
+     * 修复点2: 降低检测阈值从3次到2次
      */
     private fun isRepeatingAction(
         history: List<ConversationTurn>,
         currentResponse: AgentResponse
     ): Boolean {
-        if (history.size < 2) return false
+        if (history.isEmpty()) return false
         
-        // 检查最近 2 轮是否都是相同的 OPEN_APP 操作
         val lastTurn = history.lastOrNull() ?: return false
-        val secondLastTurn = history.getOrNull(history.size - 2) ?: return false
         
-        if (currentResponse.action == ActionType.OPEN_APP &&
-            lastTurn.llmResponse.action == ActionType.OPEN_APP &&
-            secondLastTurn.llmResponse.action == ActionType.OPEN_APP) {
-            
-            // 检查是否是同一个应用
-            val currentParams = currentResponse.actionParams as? ActionParams.OpenApp
-            val lastParams = lastTurn.llmResponse.actionParams as? ActionParams.OpenApp
-            val secondLastParams = secondLastTurn.llmResponse.actionParams as? ActionParams.OpenApp
-            
-            if (currentParams != null && lastParams != null && secondLastParams != null) {
-                if (currentParams.packageName == lastParams.packageName &&
-                    lastParams.packageName == secondLastParams.packageName) {
-                    Timber.w("检测到连续 3 次打开同一应用: ${currentParams.packageName}")
-                    return true
+        // 检测1: 连续 2 次相同的 OPEN_APP（修改：从3次降到2次）
+        if (history.size >= 1) {
+            if (currentResponse.action == ActionType.OPEN_APP &&
+                lastTurn.llmResponse.action == ActionType.OPEN_APP) {
+                
+                val currentParams = currentResponse.actionParams as? ActionParams.OpenApp
+                val lastParams = lastTurn.llmResponse.actionParams as? ActionParams.OpenApp
+                
+                if (currentParams != null && lastParams != null) {
+                    if (currentParams.packageName == lastParams.packageName) {
+                        Timber.w("检测到连续 2 次打开同一应用: ${currentParams.packageName}")
+                        return true
+                    }
                 }
+            }
+        }
+        
+        // 检测2: 连续 3 次 WAIT（新增：防止 WAIT 死循环）
+        if (history.size >= 2) {
+            val secondLastTurn = history.getOrNull(history.size - 2)
+            
+            if (currentResponse.action == ActionType.WAIT &&
+                lastTurn.llmResponse.action == ActionType.WAIT &&
+                secondLastTurn?.llmResponse?.action == ActionType.WAIT) {
+                Timber.w("检测到连续 3 次 WAIT 操作，可能陷入死循环")
+                return true
             }
         }
         
@@ -211,6 +223,8 @@ class AgentExecutor private constructor() {
     
     /**
      * 构建提示词（包含历史对话）
+     * 
+     * 修复点3: 强调UI树的重要性，减少对截图的依赖
      */
     private fun buildPrompt(
         userGoal: String,
@@ -236,25 +250,50 @@ class AgentExecutor private constructor() {
             prompt.append("\n")
         }
         
-        prompt.append("请分析当前屏幕截图和 UI 结构，决定下一步操作。\n")
+        prompt.append("⚠️ 重要：请优先分析 UI 结构文本，截图可能不准确。\n\n")
+        prompt.append("请分析当前屏幕的 UI 结构，决定下一步操作。\n")
         prompt.append("如果任务已完成，返回 NO_ACTION。\n")
         prompt.append("如果需要继续，返回下一步操作。\n")
         prompt.append("\n")
-        prompt.append("⚠️ 重要提示：\n")
-        prompt.append("1. 如果应用正在启动（黑屏/加载中），请返回 WAIT 等待，不要重复打开应用\n")
-        prompt.append("2. 如果已经在目标应用内，请继续下一步操作，不要返回 OPEN_APP\n")
-        prompt.append("3. 避免重复相同的操作\n")
+        prompt.append("⚠️ 防止死循环规则：\n")
+        prompt.append("1. 如果 UI 树显示已在目标应用内，不要返回 OPEN_APP\n")
+        prompt.append("2. 如果已经等待超过 2 次，不要再返回 WAIT，尝试其他操作\n")
+        prompt.append("3. 如果 UI 树为空或无法识别，返回 HOME 回到桌面重新开始\n")
+        prompt.append("4. 避免连续执行相同的操作\n")
         
         return prompt.toString()
     }
     
     /**
      * 捕获屏幕数据
+     * 如果 MediaProjection 不可用，返回包含真实 UI 树但空白 Bitmap 的 ScreenData，
+     * 而不是 null，避免多轮对话因截图失败而中断。
      */
     private suspend fun captureScreen(): ScreenData? {
         return try {
-            val service = EdgeAgentAccessibilityService.getInstance()
-            service?.captureScreenData()
+            val service = EdgeAgentAccessibilityService.getInstance() ?: return null
+            val data = service.captureScreenData()
+            if (data != null) return data
+
+            // 降级：直接从无障碍服务提取 UI 树，用空白 Bitmap
+            Timber.w("captureScreenData 返回 null，降级为纯 UI 树模式")
+            val rootNode = service.rootInActiveWindow
+            val uiTreeText = rootNode?.let {
+                com.tencent.edgeagent.data.perception.UITreeExtractor.getInstance()
+                    .extractUITree(it).also { _ -> it.recycle() }
+            }
+            val displayMetrics = service.resources.displayMetrics
+            val bitmap = android.graphics.Bitmap.createBitmap(
+                displayMetrics.widthPixels, displayMetrics.heightPixels,
+                android.graphics.Bitmap.Config.ARGB_8888
+            )
+            com.tencent.edgeagent.domain.model.ScreenData(
+                bitmap = bitmap,
+                uiTreeText = uiTreeText,
+                screenWidth = displayMetrics.widthPixels,
+                screenHeight = displayMetrics.heightPixels,
+                currentPackage = null
+            )
         } catch (e: Exception) {
             Timber.e(e, "捕获屏幕失败")
             null

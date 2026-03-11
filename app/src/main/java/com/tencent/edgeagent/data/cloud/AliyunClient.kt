@@ -101,6 +101,8 @@ class AliyunClient(
 
     /**
      * 构建系统提示词
+     * 
+     * 修复点6: 强调UI树的重要性，减少对截图的依赖
      */
     private fun buildSystemPrompt(): String {
         return """
@@ -108,9 +110,11 @@ class AliyunClient(
 
 你的任务：
 1. 理解用户的意图
-2. 分析当前屏幕截图和 UI 结构
+2. **优先分析 UI 结构文本**（截图可能不准确或为空白）
 3. 决定执行什么操作
 4. 返回操作指令（JSON 格式）
+
+⚠️ 重要：UI 结构文本比截图更可靠，请优先分析 UI 树！
 
 支持的操作类型：
 - CLICK: 点击屏幕某个位置

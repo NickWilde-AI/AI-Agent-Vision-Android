@@ -1,8 +1,11 @@
 package com.tencent.edgeagent.data.perception
 
 import android.graphics.Bitmap
+import com.tencent.edgeagent.service.ScreenCaptureService
+import kotlinx.coroutines.suspendCancellableCoroutine
 import timber.log.Timber
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlin.coroutines.resume
 
 /**
  * 屏幕截图管理器（带 Bitmap 复用池）
@@ -10,7 +13,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * 职责：
  * 1. 管理 Bitmap 对象池，避免频繁 GC
  * 2. 提供线程安全的 Bitmap 获取和回收
- * 3. 内存优化
+ * 3. 提供真实的屏幕截图功能
+ * 4. 内存优化
  */
 class ScreenCaptureManager private constructor() {
 
@@ -19,6 +23,51 @@ class ScreenCaptureManager private constructor() {
     
     // 池大小限制
     private val maxPoolSize = 3
+    
+    // 最后一次截图的缓存
+    private var lastScreenshot: Bitmap? = null
+    
+    /**
+     * 捕获屏幕截图（异步）
+     * 
+     * @return 屏幕截图 Bitmap，如果失败返回空白 Bitmap
+     */
+    suspend fun captureScreen(): Bitmap = suspendCancellableCoroutine { continuation ->
+        val service = ScreenCaptureService.getInstance()
+        
+        if (service == null) {
+            Timber.w("ScreenCaptureService 未启动，返回空白 Bitmap")
+            val emptyBitmap = createEmptyBitmap()
+            continuation.resume(emptyBitmap)
+            return@suspendCancellableCoroutine
+        }
+        
+        // 请求截图
+        ScreenCaptureService.captureScreen { bitmap ->
+            // 缓存最后一次截图
+            lastScreenshot?.recycle()
+            lastScreenshot = bitmap
+            
+            continuation.resume(bitmap)
+        }
+    }
+    
+    /**
+     * 获取最后一次截图（同步）
+     * 
+     * @return 最后一次截图，如果没有则返回空白 Bitmap
+     */
+    fun getLastScreenshot(): Bitmap {
+        return lastScreenshot ?: createEmptyBitmap()
+    }
+    
+    /**
+     * 创建空白 Bitmap（兜底）
+     */
+    private fun createEmptyBitmap(): Bitmap {
+        // 使用常见的屏幕尺寸
+        return Bitmap.createBitmap(1080, 2400, Bitmap.Config.ARGB_8888)
+    }
     
     /**
      * 从池中获取 Bitmap，如果池为空则创建新的
@@ -70,6 +119,10 @@ class ScreenCaptureManager private constructor() {
         while (bitmapPool.isNotEmpty()) {
             bitmapPool.poll()?.recycle()
         }
+        
+        // 清空最后一次截图
+        lastScreenshot?.recycle()
+        lastScreenshot = null
     }
     
     /**
@@ -77,6 +130,13 @@ class ScreenCaptureManager private constructor() {
      */
     fun getPoolStatus(): String {
         return "Bitmap 池大小: ${bitmapPool.size}/$maxPoolSize"
+    }
+    
+    /**
+     * 检查截图服务是否可用
+     */
+    fun isScreenCaptureAvailable(): Boolean {
+        return ScreenCaptureService.getInstance() != null
     }
 
     companion object {

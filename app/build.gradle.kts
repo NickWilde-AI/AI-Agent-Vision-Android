@@ -24,9 +24,9 @@ android {
             useSupportLibrary = true
         }
         
-        // 添加编译时间
-        val buildTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
-        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
+        // 添加编译时间（毫秒时间戳）
+        val buildTimeMs = System.currentTimeMillis()
+        buildConfigField("long", "BUILD_TIME", "${buildTimeMs}L")
     }
 
     buildTypes {

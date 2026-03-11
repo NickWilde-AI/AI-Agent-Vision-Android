@@ -1,32 +1,57 @@
 package com.tencent.edgeagent.ui
 
+import android.content.Context
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.os.Bundle
+import android.provider.Settings
+import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.tencent.edgeagent.BuildConfig
 import com.tencent.edgeagent.R
+import com.tencent.edgeagent.domain.model.AgentState
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
+import com.tencent.edgeagent.service.ScreenCaptureService
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 主界面 Activity
+ *
+ * 职责：
+ * 1. 展示 Agent 运行状态
+ * 2. 权限管理（无障碍服务 + 屏幕截图）
+ * 3. 接收用户指令并触发执行
+ * 4. 管理 MediaProjection 授权流程
  */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var viewModel: MainViewModel
-    
+    private val viewModel: MainViewModel by viewModels()
+
+    // Views
     private lateinit var tvBuildTime: TextView
-    private lateinit var tvState: TextView
+    private lateinit var tvAccessibilityDot: View
+    private lateinit var tvAccessibilityStatus: TextView
+    private lateinit var btnOpenAccessibility: TextView
+    private lateinit var tvCaptureDot: View
+    private lateinit var tvScreenCaptureStatus: TextView
+    private lateinit var btnRequestScreenCapture: TextView
     private lateinit var tvModelInfo: TextView
     private lateinit var tvCloudStatus: TextView
+    private lateinit var tvState: TextView
+    private lateinit var tvExecutionResult: TextView
     private lateinit var tvLastResponse: TextView
-    private lateinit var tvAccessibilityStatus: TextView
-    private lateinit var btnOpenAccessibility: Button
     private lateinit var etCustomPrompt: EditText
     private lateinit var btnExecuteCustom: Button
     private lateinit var btnTest1: Button
@@ -35,69 +60,56 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnTest4: Button
     private lateinit var btnTest5: Button
 
+    // MediaProjection 授权结果
+    private val screenCapturePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            Timber.i("屏幕截图授权成功")
+            // 启动截图前台服务
+            ScreenCaptureService.start(this, result.resultCode, result.data!!)
+            updateScreenCaptureStatus(true)
+        } else {
+            Timber.w("屏幕截图授权被拒绝")
+            updateScreenCaptureStatus(false)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
-        Timber.d("MainActivity 启动")
-        
-        viewModel = ViewModelProvider(this)[MainViewModel::class.java]
-        
-        initViews()
+
+        bindViews()
+        setupBuildTime()
+        setupClickListeners()
         observeViewModel()
-        checkAccessibilityPermission()
+
+        Timber.d("MainActivity 创建")
     }
-    
+
     override fun onResume() {
         super.onResume()
-        // 每次回到前台时检查权限状态
-        checkAccessibilityPermission()
+        // 每次回到前台刷新权限状态（用户可能去设置页面开了权限）
+        refreshPermissionStatus()
     }
-    
-    /**
-     * 检查无障碍权限状态
-     */
-    private fun checkAccessibilityPermission() {
-        val isEnabled = isAccessibilityServiceEnabled()
-        
-        if (isEnabled) {
-            tvAccessibilityStatus.text = "✅ 无障碍权限已开启"
-            tvAccessibilityStatus.setTextColor(getColor(android.R.color.holo_green_dark))
-            btnOpenAccessibility.visibility = android.view.View.GONE
-        } else {
-            tvAccessibilityStatus.text = "❌ 无障碍权限未开启"
-            tvAccessibilityStatus.setTextColor(getColor(android.R.color.holo_red_dark))
-            btnOpenAccessibility.visibility = android.view.View.VISIBLE
-        }
-    }
-    
-    /**
-     * 检查无障碍服务是否已启用
-     */
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        val service = EdgeAgentAccessibilityService.getInstance()
-        return service != null
-    }
-    
-    /**
-     * 打开无障碍设置页面
-     */
-    private fun openAccessibilitySettings() {
-        AlertDialog.Builder(this)
-            .setTitle("开启无障碍权限")
-            .setMessage("VisionAgent 需要无障碍权限来执行自动化操作。\n\n请手动前往：设置 -> 更多设置 -> 无障碍 -> VisionAgent")
-            .setPositiveButton("知道了", null)
-            .show()
-    }
-    
-    private fun initViews() {
+
+    // ────────────────────────────────────────────
+    // 绑定 Views
+    // ────────────────────────────────────────────
+
+    private fun bindViews() {
         tvBuildTime = findViewById(R.id.tv_build_time)
-        tvState = findViewById(R.id.tv_state)
-        tvModelInfo = findViewById(R.id.tv_model_info)
-        tvCloudStatus = findViewById(R.id.tv_cloud_status)
-        tvLastResponse = findViewById(R.id.tv_last_response)
+        tvAccessibilityDot = findViewById(R.id.tv_accessibility_dot)
         tvAccessibilityStatus = findViewById(R.id.tv_accessibility_status)
         btnOpenAccessibility = findViewById(R.id.btn_open_accessibility)
+        tvCaptureDot = findViewById(R.id.tv_capture_dot)
+        tvScreenCaptureStatus = findViewById(R.id.tv_screen_capture_status)
+        btnRequestScreenCapture = findViewById(R.id.btn_request_screen_capture)
+        tvModelInfo = findViewById(R.id.tv_model_info)
+        tvCloudStatus = findViewById(R.id.tv_cloud_status)
+        tvState = findViewById(R.id.tv_state)
+        tvExecutionResult = findViewById(R.id.tv_execution_result)
+        tvLastResponse = findViewById(R.id.tv_last_response)
         etCustomPrompt = findViewById(R.id.et_custom_prompt)
         btnExecuteCustom = findViewById(R.id.btn_execute_custom)
         btnTest1 = findViewById(R.id.btn_test1)
@@ -105,90 +117,175 @@ class MainActivity : AppCompatActivity() {
         btnTest3 = findViewById(R.id.btn_test3)
         btnTest4 = findViewById(R.id.btn_test4)
         btnTest5 = findViewById(R.id.btn_test5)
-        
-        // 显示编译时间
-        tvBuildTime.text = "编译时间: ${com.tencent.edgeagent.BuildConfig.BUILD_TIME}"
-        
-        // 无障碍权限按钮
-        btnOpenAccessibility.setOnClickListener {
-            openAccessibilitySettings()
+    }
+
+    // ────────────────────────────────────────────
+    // Build 时间
+    // ────────────────────────────────────────────
+
+    private fun setupBuildTime() {
+        val buildTime = try {
+            val buildTimeMs = BuildConfig.BUILD_TIME
+            val sdf = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault())
+            sdf.format(Date(buildTimeMs))
+        } catch (e: Exception) {
+            "未知"
         }
-        
-        // 自定义指令按钮
+        tvBuildTime.text = "Build: $buildTime"
+    }
+
+    // ────────────────────────────────────────────
+    // 点击事件
+    // ────────────────────────────────────────────
+
+    private fun setupClickListeners() {
+        // 去开启无障碍
+        btnOpenAccessibility.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
+        // 去授权屏幕截图
+        btnRequestScreenCapture.setOnClickListener {
+            requestScreenCapturePermission()
+        }
+
+        // 执行自定义指令
         btnExecuteCustom.setOnClickListener {
             val prompt = etCustomPrompt.text.toString().trim()
             if (prompt.isNotEmpty()) {
+                hideKeyboard()
                 viewModel.testInference(prompt)
-            } else {
-                AlertDialog.Builder(this)
-                    .setTitle("提示")
-                    .setMessage("请输入指令")
-                    .setPositiveButton("确定", null)
-                    .show()
             }
         }
-        
-        btnTest1.setOnClickListener {
-            viewModel.testInference("点击屏幕中心")
-        }
-        
-        btnTest2.setOnClickListener {
-            viewModel.testInference("向上滑动")
-        }
-        
-        btnTest3.setOnClickListener {
-            viewModel.testInference("打开微信")
-        }
-        
-        btnTest4.setOnClickListener {
-            viewModel.testInference("打开美团")
-        }
-        
-        btnTest5.setOnClickListener {
-            viewModel.testInference("打开电话")
-        }
+
+        // 快捷测试
+        btnTest1.setOnClickListener { viewModel.testInference("点击屏幕中心") }
+        btnTest2.setOnClickListener { viewModel.testInference("向上滑动") }
+        btnTest3.setOnClickListener { viewModel.testInference("打开微信") }
+        btnTest4.setOnClickListener { viewModel.testInference("打开美团") }
+        btnTest5.setOnClickListener { viewModel.testInference("打开电话") }
     }
-    
+
+    // ────────────────────────────────────────────
+    // 观察 ViewModel
+    // ────────────────────────────────────────────
+
     private fun observeViewModel() {
         lifecycleScope.launch {
-            viewModel.agentState.collect { state ->
-                tvState.text = "当前状态: ${state.name}"
+            viewModel.agentState.collectLatest { state ->
+                updateStateUI(state)
             }
         }
-        
+
         lifecycleScope.launch {
-            viewModel.modelInfo.collect { info ->
-                if (info != null) {
-                    tvModelInfo.text = """
-                        模型信息:
-                        名称: ${info.name}
-                        版本: ${info.version}
-                        大小: ${info.sizeInMB} MB
-                        多模态: ${if (info.supportsMultimodal) "是" else "否"}
-                        平均推理时间: ${info.avgInferenceTimeMs} ms
-                    """.trimIndent()
-                }
-            }
-        }
-        
-        lifecycleScope.launch {
-            viewModel.lastResponse.collect { response ->
+            viewModel.lastResponse.collectLatest { response ->
                 if (response != null) {
-                    tvLastResponse.text = """
-                        最后响应:
-                        来源: ${response.source.name}
-                        动作: ${response.action.name}
-                        置信度: ${"%.2f".format(response.confidence)}
-                        推理时间: ${response.inferenceTimeMs} ms
-                    """.trimIndent()
+                    tvLastResponse.text = buildString {
+                        append("action: ${response.action}\n")
+                        append("confidence: ${"%,.2f".format(response.confidence)}\n")
+                        append("source: ${response.source}\n")
+                        if (response.rawOutput != null) {
+                            append("output: ${response.rawOutput.take(120)}")
+                        }
+                    }
+                } else {
+                    tvLastResponse.text = "上次响应: 无"
                 }
             }
         }
-        
+
         lifecycleScope.launch {
-            viewModel.cloudStatus.collect { status ->
-                tvCloudStatus.text = "云端状态: $status"
+            viewModel.modelInfo.collectLatest { info ->
+                tvModelInfo.text = info?.name ?: "MockVLM"
             }
         }
+
+        lifecycleScope.launch {
+            viewModel.executionResult.collectLatest { result ->
+                if (result != null) {
+                    tvExecutionResult.text = result
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            viewModel.cloudStatus.collectLatest { status ->
+                tvCloudStatus.text = status
+            }
+        }
+    }
+
+    // ────────────────────────────────────────────
+    // 状态 UI 更新
+    // ────────────────────────────────────────────
+
+    private fun updateStateUI(state: AgentState) {
+        tvState.text = state.name
+        val isIdle = state == AgentState.IDLE || state == AgentState.COMPLETED || state == AgentState.ERROR
+        btnExecuteCustom.isEnabled = isIdle
+        btnTest1.isEnabled = isIdle
+        btnTest2.isEnabled = isIdle
+        btnTest3.isEnabled = isIdle
+        btnTest4.isEnabled = isIdle
+        btnTest5.isEnabled = isIdle
+    }
+
+    // ────────────────────────────────────────────
+    // 权限状态刷新
+    // ────────────────────────────────────────────
+
+    private fun refreshPermissionStatus() {
+        // 无障碍服务
+        val accessibilityEnabled = EdgeAgentAccessibilityService.getInstance() != null
+        updateAccessibilityStatus(accessibilityEnabled)
+
+        // 屏幕截图服务
+        val screenCaptureEnabled = ScreenCaptureService.getInstance() != null
+        updateScreenCaptureStatus(screenCaptureEnabled)
+    }
+
+    private fun updateAccessibilityStatus(enabled: Boolean) {
+        if (enabled) {
+            tvAccessibilityDot.setBackgroundResource(R.drawable.dot_green)
+            tvAccessibilityStatus.text = "已开启"
+            tvAccessibilityStatus.setTextColor(getColor(R.color.va_green))
+            btnOpenAccessibility.visibility = View.GONE
+        } else {
+            tvAccessibilityDot.setBackgroundResource(R.drawable.dot_red)
+            tvAccessibilityStatus.text = "未开启"
+            tvAccessibilityStatus.setTextColor(getColor(R.color.va_red))
+            btnOpenAccessibility.visibility = View.VISIBLE
+        }
+    }
+
+    private fun updateScreenCaptureStatus(enabled: Boolean) {
+        if (enabled) {
+            tvCaptureDot.setBackgroundResource(R.drawable.dot_green)
+            tvScreenCaptureStatus.text = "已授权"
+            tvScreenCaptureStatus.setTextColor(getColor(R.color.va_green))
+        } else {
+            tvCaptureDot.setBackgroundResource(R.drawable.dot_red)
+            tvScreenCaptureStatus.text = "未授权"
+            tvScreenCaptureStatus.setTextColor(getColor(R.color.va_red))
+        }
+    }
+
+    // ────────────────────────────────────────────
+    // MediaProjection 授权
+    // ────────────────────────────────────────────
+
+    private fun requestScreenCapturePermission() {
+        val mediaProjectionManager =
+            getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        screenCapturePermissionLauncher.launch(mediaProjectionManager.createScreenCaptureIntent())
+    }
+
+    // ────────────────────────────────────────────
+    // 工具方法
+    // ────────────────────────────────────────────
+
+    private fun hideKeyboard() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        currentFocus?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
     }
 }

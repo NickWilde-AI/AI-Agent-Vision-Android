@@ -75,7 +75,7 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
 
     /**
      * 捕获当前屏幕数据（截图 + UI 树）
-     * 注意：截图功能需要 Android 11+ (API 30)
+     * 优先使用 MediaProjection 真实截图，不可用时降级为空白 Bitmap
      */
     suspend fun captureScreenData(): ScreenData? {
         if (!isServiceReady) {
@@ -84,33 +84,33 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
         }
         
         return try {
-            // 获取屏幕尺寸
             val displayMetrics = resources.displayMetrics
             val screenWidth = displayMetrics.widthPixels
             val screenHeight = displayMetrics.heightPixels
             
             // 提取 UI 树
             val rootNode = rootInActiveWindow
-            if (rootNode == null) {
-                Timber.w("rootInActiveWindow 为 null，可能无障碍权限未正确授予")
-                // 即使 rootNode 为 null，也返回基本的屏幕数据
-                val bitmap = screenCaptureManager.obtainBitmap(screenWidth, screenHeight)
-                return ScreenData(
-                    bitmap = bitmap,
-                    uiTreeText = null,
-                    screenWidth = screenWidth,
-                    screenHeight = screenHeight,
-                    currentPackage = null
-                )
+            val uiTreeText: String?
+            val currentPackage: String?
+            
+            if (rootNode != null) {
+                uiTreeText = uiTreeExtractor.extractUITree(rootNode)
+                currentPackage = rootNode.packageName?.toString()
+                rootNode.recycle()
+            } else {
+                Timber.w("rootInActiveWindow 为 null，UI 树不可用")
+                uiTreeText = null
+                currentPackage = null
             }
             
-            val uiTreeText = uiTreeExtractor.extractUITree(rootNode)
-            val currentPackage = rootNode.packageName?.toString()
-            
-            rootNode.recycle()
-            
-            // 创建一个空白 Bitmap（实际项目中需要真实截图）
-            val bitmap = screenCaptureManager.obtainBitmap(screenWidth, screenHeight)
+            // 优先使用 MediaProjection 真实截图
+            val bitmap = if (screenCaptureManager.isScreenCaptureAvailable()) {
+                Timber.d("使用 MediaProjection 真实截图")
+                screenCaptureManager.captureScreen()
+            } else {
+                Timber.w("MediaProjection 不可用，使用空白 Bitmap（请授权屏幕截图权限）")
+                screenCaptureManager.obtainBitmap(screenWidth, screenHeight)
+            }
             
             ScreenData(
                 bitmap = bitmap,

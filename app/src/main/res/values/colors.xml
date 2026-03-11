@@ -2,4 +2,20 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- VisionAgent 主题色 -->
+    <color name="va_bg_dark">#0D0F14</color>
+    <color name="va_surface">#151820</color>
+    <color name="va_surface2">#1C2030</color>
+    <color name="va_accent">#00E5FF</color>
+    <color name="va_accent_dim">#1A3A3F</color>
+    <color name="va_green">#00E676</color>
+    <color name="va_green_dim">#0D2B1A</color>
+    <color name="va_red">#FF5252</color>
+    <color name="va_red_dim">#2B0D0D</color>
+    <color name="va_orange">#FFAB40</color>
+    <color name="va_orange_dim">#2B1E0A</color>
+    <color name="va_text_primary">#EAEEFF</color>
+    <color name="va_text_secondary">#7A8299</color>
+    <color name="va_divider">#232840</color>
 </resources>
