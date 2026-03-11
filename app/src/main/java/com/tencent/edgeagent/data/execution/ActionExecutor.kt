@@ -3,6 +3,7 @@ package com.tencent.edgeagent.data.execution
 import com.tencent.edgeagent.domain.model.ActionParams
 import com.tencent.edgeagent.domain.model.ActionType
 import com.tencent.edgeagent.domain.model.AgentResponse
+import com.tencent.edgeagent.domain.model.DeviceControlType
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
 import timber.log.Timber
 
@@ -428,14 +429,91 @@ class ActionExecutor private constructor() {
     }
 
     /**
-     * 执行设备控制
+     * 执行设备控制（音量、亮度）
+     *
+     * 100% 本地执行，绝不上云（隐私合规）
      */
     private fun executeDeviceControl(params: ActionParams): ExecutionResult {
         return when (params) {
             is ActionParams.DeviceControl -> {
-                // TODO: 实现设备控制（音量、亮度等）
-                Timber.w("设备控制功能待实现: ${params.controlType}")
-                ExecutionResult.Success("设备控制待实现")
+                try {
+                    val service = EdgeAgentAccessibilityService.getInstance()
+                        ?: return ExecutionResult.Failure("无障碍服务未启动")
+                    val context = service.applicationContext
+                    val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE)
+                            as android.media.AudioManager
+
+                    when (params.controlType) {
+                        DeviceControlType.VOLUME_UP -> {
+                            audioManager.adjustStreamVolume(
+                                android.media.AudioManager.STREAM_MUSIC,
+                                android.media.AudioManager.ADJUST_RAISE,
+                                android.media.AudioManager.FLAG_SHOW_UI
+                            )
+                            Timber.d("音量增大")
+                            ExecutionResult.Success("音量增大")
+                        }
+                        DeviceControlType.VOLUME_DOWN -> {
+                            audioManager.adjustStreamVolume(
+                                android.media.AudioManager.STREAM_MUSIC,
+                                android.media.AudioManager.ADJUST_LOWER,
+                                android.media.AudioManager.FLAG_SHOW_UI
+                            )
+                            Timber.d("音量减小")
+                            ExecutionResult.Success("音量减小")
+                        }
+                        DeviceControlType.BRIGHTNESS_UP -> {
+                            val current = android.provider.Settings.System.getInt(
+                                context.contentResolver,
+                                android.provider.Settings.System.SCREEN_BRIGHTNESS, 128
+                            )
+                            val newVal = (current + 30).coerceAtMost(255)
+                            android.provider.Settings.System.putInt(
+                                context.contentResolver,
+                                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                                newVal
+                            )
+                            Timber.d("亮度增加: $current -> $newVal")
+                            ExecutionResult.Success("亮度增加至 $newVal")
+                        }
+                        DeviceControlType.BRIGHTNESS_DOWN -> {
+                            val current = android.provider.Settings.System.getInt(
+                                context.contentResolver,
+                                android.provider.Settings.System.SCREEN_BRIGHTNESS, 128
+                            )
+                            val newVal = (current - 30).coerceAtLeast(10)
+                            android.provider.Settings.System.putInt(
+                                context.contentResolver,
+                                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                                newVal
+                            )
+                            Timber.d("亮度减少: $current -> $newVal")
+                            ExecutionResult.Success("亮度减少至 $newVal")
+                        }
+                        DeviceControlType.WIFI_TOGGLE -> {
+                            // Android 10+ 不允许直接开关 WiFi，引导用户到设置
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                            ExecutionResult.Success("已打开 WiFi 设置")
+                        }
+                        DeviceControlType.BLUETOOTH_TOGGLE -> {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                            ExecutionResult.Success("已打开蓝牙设置")
+                        }
+                        DeviceControlType.AIRPLANE_MODE_TOGGLE -> {
+                            val intent = android.content.Intent(android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                            ExecutionResult.Success("已打开飞行模式设置")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "设备控制失败")
+                    ExecutionResult.Failure("设备控制失败: ${e.message}")
+                }
             }
             else -> ExecutionResult.Failure("参数类型错误")
         }
