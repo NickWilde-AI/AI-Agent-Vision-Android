@@ -231,13 +231,20 @@ class MainViewModel : ViewModel() {
 
     /**
      * 判断是否使用多轮对话模式
+     *
+     * 多轮对话适用于：包含多个动作步骤的复杂任务
+     * 单轮适用于：简单的单一操作（点击、滑动、返回等）
      */
     private fun shouldUseMultiRound(userInput: String, intent: AgentIntent): Boolean {
-        // 包含多个动作关键词的复杂任务
-        val complexKeywords = listOf("发送", "搜索", "查找", "打开.*并", "然后", "接着")
-        return complexKeywords.any { keyword ->
-            userInput.contains(Regex(keyword))
+        // 单一原子操作，直接单轮
+        val singleActionKeywords = listOf("点击", "滑动", "返回", "home", "主屏幕", "向上", "向下")
+        if (singleActionKeywords.any { userInput.contains(it) } &&
+            !userInput.contains("然后") && !userInput.contains("并")) {
+            return false
         }
+        // 复杂任务关键词 → 多轮
+        val complexKeywords = listOf("发送", "搜索", "查找", "并", "然后", "接着", "再")
+        return complexKeywords.any { userInput.contains(it) }
     }
     
     /**

@@ -263,63 +263,57 @@ class ActionExecutor private constructor() {
 
     /**
      * 执行打开应用
-     * 
-     * 策略：
-     * 通过无障碍服务在桌面查找应用图标并点击（真正的 Agent 行为）
-     * 
-     * 修复点4: 添加应用启动等待，避免立即按 Home 打断
-     * 修复点5: 改进当前应用检测逻辑
+     *
+     * 策略优先级：
+     * 1. 检测是否已在目标应用内 → 直接返回成功
+     * 2. 使用 Intent 直接启动（最可靠）
+     * 3. 在桌面查找图标点击（Agent 感知行为，作为备选）
      */
     private suspend fun executeOpenApp(params: ActionParams): ExecutionResult {
         return when (params) {
             is ActionParams.OpenApp -> {
                 try {
                     val service = EdgeAgentAccessibilityService.getInstance()
-                    if (service == null) {
-                        return ExecutionResult.Failure("无障碍服务未启动")
-                    }
-                    
-                    // 获取应用名称（用于在桌面查找）
+                        ?: return ExecutionResult.Failure("无障碍服务未启动")
+
                     val context = service.applicationContext
-                    val appName = getAppName(context, params.packageName)
-                    
-                    if (appName != null) {
-                        Timber.d("尝试打开应用: $appName (${params.packageName})")
-                        
-                        // 修复点5: 改进当前应用检测，增加重试机制
-                        var currentPackage: String? = null
-                        for (i in 0..2) { // 尝试3次获取当前包名
-                            currentPackage = service.rootInActiveWindow?.packageName?.toString()
-                            if (currentPackage != null) break
-                            kotlinx.coroutines.delay(200) // 等待200ms后重试
-                        }
-                        
-                        if (currentPackage == params.packageName) {
-                            Timber.d("已经在目标应用内: $appName，无需重复打开")
-                            return ExecutionResult.Success("已在应用内: $appName")
-                        }
-                        
-                        // 先确保在桌面（按 Home 键）
-                        Timber.d("按 Home 键回到桌面")
-                        service.performHome()
-                        kotlinx.coroutines.delay(800) // 等待桌面加载
-                        
-                        // 在桌面查找应用图标
-                        val iconFound = findAndClickAppIcon(service, appName, params.packageName)
-                        
-                        if (iconFound) {
-                            Timber.d("通过无障碍服务点击应用图标成功: $appName")
-                            // 修复点4: 等待应用启动，不要立即返回
-                            kotlinx.coroutines.delay(1500) // 等待1.5秒让应用启动
-                            return ExecutionResult.Success("通过点击图标打开应用: $appName")
-                        } else {
-                            Timber.w("未在桌面找到应用图标: $appName")
-                            return ExecutionResult.Failure("未在桌面找到应用图标: $appName")
-                        }
-                    } else {
-                        Timber.w("无法获取应用名称: ${params.packageName}")
-                        return ExecutionResult.Failure("无法获取应用名称: ${params.packageName}")
+
+                    // Step 1: 检测是否已在目标应用内
+                    var currentPackage: String? = null
+                    for (i in 0..2) {
+                        currentPackage = service.rootInActiveWindow?.packageName?.toString()
+                        if (currentPackage != null) break
+                        kotlinx.coroutines.delay(200)
                     }
+                    if (currentPackage == params.packageName) {
+                        Timber.d("已在目标应用内: ${params.packageName}")
+                        return ExecutionResult.Success("已在应用内: ${params.packageName}")
+                    }
+
+                    // Step 2: Intent 直接启动（最可靠）
+                    val pm = context.packageManager
+                    val launchIntent = pm.getLaunchIntentForPackage(params.packageName)
+                    if (launchIntent != null) {
+                        launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(launchIntent)
+                        Timber.d("Intent 启动应用成功: ${params.packageName}")
+                        kotlinx.coroutines.delay(1500) // 等待应用启动
+                        return ExecutionResult.Success("Intent 启动: ${params.packageName}")
+                    }
+
+                    // Step 3: 降级 — 在桌面查找图标（保留 Agent 感知行为）
+                    val appName = getAppName(context, params.packageName)
+                    if (appName != null) {
+                        service.performHome()
+                        kotlinx.coroutines.delay(800)
+                        val iconFound = findAndClickAppIcon(service, appName, params.packageName)
+                        if (iconFound) {
+                            kotlinx.coroutines.delay(1500)
+                            return ExecutionResult.Success("点击图标启动: $appName")
+                        }
+                    }
+
+                    ExecutionResult.Failure("无法启动应用: ${params.packageName}")
                 } catch (e: Exception) {
                     Timber.e(e, "打开应用失败")
                     ExecutionResult.Failure("打开应用失败: ${e.message}")

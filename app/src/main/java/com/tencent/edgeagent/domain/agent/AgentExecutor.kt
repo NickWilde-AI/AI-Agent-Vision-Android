@@ -222,9 +222,7 @@ class AgentExecutor private constructor() {
     }
     
     /**
-     * 构建提示词（包含历史对话）
-     * 
-     * 修复点3: 强调UI树的重要性，减少对截图的依赖
+     * 构建提示词（包含历史对话 + 当前 UI 树摘要）
      */
     private fun buildPrompt(
         userGoal: String,
@@ -232,35 +230,45 @@ class AgentExecutor private constructor() {
         currentRound: Int
     ): String {
         val prompt = StringBuilder()
-        
+
         prompt.append("用户目标：$userGoal\n\n")
-        prompt.append("当前是第 $currentRound 轮对话。\n\n")
-        
+        prompt.append("当前是第 $currentRound 轮对话（最多 $MAX_ROUNDS 轮）。\n\n")
+
         if (history.isNotEmpty()) {
-            prompt.append("历史操作：\n")
+            prompt.append("历史操作记录：\n")
             history.forEach { turn ->
-                prompt.append("第 ${turn.round} 轮：${turn.llmResponse.action}")
-                when (turn.executionResult) {
-                    is ExecutionResult.Success -> prompt.append(" ✅ 成功")
-                    is ExecutionResult.Failure -> prompt.append(" ❌ 失败: ${(turn.executionResult as ExecutionResult.Failure).message}")
-                    null -> prompt.append(" ⏳ 执行中")
+                val resultStr = when (turn.executionResult) {
+                    is ExecutionResult.Success -> "✅ ${(turn.executionResult as ExecutionResult.Success).message}"
+                    is ExecutionResult.Failure -> "❌ ${(turn.executionResult as ExecutionResult.Failure).message}"
+                    null -> "⏳ 执行中"
                 }
-                prompt.append("\n")
+                // 附带当时的 UI 树摘要，帮助 LLM 理解前后变化
+                val uiSummary = turn.screenData.uiTreeText
+                    ?.lines()
+                    ?.filter { it.contains("text='") || it.contains("desc='") }
+                    ?.take(5)
+                    ?.joinToString(" | ")
+                    ?.take(120) ?: "(无 UI 数据)"
+                prompt.append("  第 ${turn.round} 轮: ${turn.llmResponse.action} → $resultStr\n")
+                prompt.append("    UI 摘要: $uiSummary\n")
             }
             prompt.append("\n")
         }
-        
-        prompt.append("⚠️ 重要：请优先分析 UI 结构文本，截图可能不准确。\n\n")
-        prompt.append("请分析当前屏幕的 UI 结构，决定下一步操作。\n")
-        prompt.append("如果任务已完成，返回 NO_ACTION。\n")
-        prompt.append("如果需要继续，返回下一步操作。\n")
-        prompt.append("\n")
-        prompt.append("⚠️ 防止死循环规则：\n")
-        prompt.append("1. 如果 UI 树显示已在目标应用内，不要返回 OPEN_APP\n")
-        prompt.append("2. 如果已经等待超过 2 次，不要再返回 WAIT，尝试其他操作\n")
-        prompt.append("3. 如果 UI 树为空或无法识别，返回 HOME 回到桌面重新开始\n")
-        prompt.append("4. 避免连续执行相同的操作\n")
-        
+
+        // 当前屏幕包名（如有）
+        val lastPackage = history.lastOrNull()?.screenData?.currentPackage
+        if (lastPackage != null) {
+            prompt.append("当前应用包名: $lastPackage\n\n")
+        }
+
+        prompt.append("【决策规则】\n")
+        prompt.append("1. 优先分析 UI 结构文本（比截图更可靠）\n")
+        prompt.append("2. 如果当前包名已是目标应用，不要再执行 OPEN_APP，直接在界面内操作\n")
+        prompt.append("3. 如果已连续 WAIT 超过 2 次，改用其他操作（如 HOME 或 CLICK）\n")
+        prompt.append("4. 如果 UI 树为空，执行 HOME 回到桌面重新开始\n")
+        prompt.append("5. 任务完成后返回 NO_ACTION\n")
+        prompt.append("6. 每次只返回一个操作步骤\n")
+
         return prompt.toString()
     }
     
@@ -280,8 +288,10 @@ class AgentExecutor private constructor() {
             val rootNode = service.rootInActiveWindow
             val uiTreeText = rootNode?.let {
                 com.tencent.edgeagent.data.perception.UITreeExtractor.getInstance()
-                    .extractUITree(it).also { _ -> it.recycle() }
+                    .extractUITree(it)
             }
+            val currentPackage = rootNode?.packageName?.toString()
+            rootNode?.recycle()
             val displayMetrics = service.resources.displayMetrics
             val bitmap = android.graphics.Bitmap.createBitmap(
                 displayMetrics.widthPixels, displayMetrics.heightPixels,
@@ -292,7 +302,7 @@ class AgentExecutor private constructor() {
                 uiTreeText = uiTreeText,
                 screenWidth = displayMetrics.widthPixels,
                 screenHeight = displayMetrics.heightPixels,
-                currentPackage = null
+                currentPackage = currentPackage
             )
         } catch (e: Exception) {
             Timber.e(e, "捕获屏幕失败")
