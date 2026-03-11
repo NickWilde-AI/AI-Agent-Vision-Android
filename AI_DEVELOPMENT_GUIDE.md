@@ -189,7 +189,7 @@ adb logcat -d | grep -E "VisionAgent|EdgeAgent|MainActivity|AndroidRuntime|FATAL
 | Phase 2 | 无障碍服务 | ✅ 完成 | 100% |
 | Phase 3 | 真实操作执行 | ✅ 完成 | 90% |
 | Phase 4 | 云端 API 集成 | ✅ 完成 | 100% |
-| Phase 4.5 | 多轮对话与反馈循环 | 🚧 进行中 | 60% |
+| Phase 4.5 | 多轮对话与反馈循环 | 🚧 进行中 | 85% |
 | Phase 5 | 本地 RAG | ⏳ 待开发 | 0% |
 | Phase 6 | 本地 VLM | ⏳ 可选 | 0% |
 | Phase 7 | 语音交互 | ⏳ 可选 | 0% |
@@ -203,11 +203,17 @@ adb logcat -d | grep -E "VisionAgent|EdgeAgent|MainActivity|AndroidRuntime|FATAL
 - 动作执行器（真实无障碍点击）
 - 云端 API 集成（阿里云百炼 Qwen-VL-Max）
 - Bitmap 对象池（内存优化）
+- **MainActivity 完整实现**（权限状态、指令输入、状态展示）
+- **真实屏幕截图接入**（MediaProjection 授权流程，降级 UI 树模式）
+- **文本输入实现**（ACTION_SET_TEXT + 剪贴板降级）
+- **executeOpenApp 优先 Intent 启动**（更可靠，图标查找作备选）
 - 自定义指令输入框
 - 多轮对话框架（AgentExecutor）
+- **多轮对话提示词优化**（含 UI 树摘要、当前包名、决策规则）
 - WAIT 操作支持
 - 重复操作检测
 - 编译时间显示
+- 深色科技感 UI 主题（#0D0F14 背景 + #00E5FF accent）
 
 ### 进行中功能 🚧
 - **多轮对话系统**：支持 LLM 多次交互 ✅
@@ -225,18 +231,15 @@ adb logcat -d | grep -E "VisionAgent|EdgeAgent|MainActivity|AndroidRuntime|FATAL
 - 语音交互（ASR + TTS）
 
 ### 当前问题 ⚠️
-1. **屏幕截图功能未实现**：当前只创建空白 Bitmap，LLM 看到的永远是黑屏
-2. **无障碍服务权限**：rootInActiveWindow 有时为 null，导致无法获取 UI 树
-3. **应用图标查找**：在桌面找不到应用图标，可能是 UI 树提取不完整
-4. **坐标问题**：云端返回的坐标可能不准确（需要实现真实截图后才能验证）
+1. **屏幕截图**：已接入 MediaProjection，需用户在 MainActivity 点击「去授权」完成授权流程；未授权时降级为纯 UI 树模式（多轮对话不中断）
+2. **无障碍服务权限**：rootInActiveWindow 有时为 null，已加重试机制，影响可控
+3. **坐标精度**：真实截图授权后才能验证云端返回坐标准确性
 
-### 技术难点
-- **屏幕截图**：需要 MediaProjection API（Android 11+），需要用户授权和前台服务
-- **多轮对话死循环**：由于没有真实截图，LLM 一直看到黑屏，导致重复 WAIT 操作
-- **解决方案**：
-  1. 实现真实屏幕截图（优先级最高）
-  2. 或使用 UI 树文本作为主要输入（不依赖截图）
-  3. 或使用 Intent 启动应用（绕过图标查找）
+### 技术难点（已解决）
+- **屏幕截图**：✅ MediaProjection 已实现，MainActivity 提供授权入口，降级策略保证多轮对话不中断
+- **多轮对话死循环**：✅ 提示词包含 UI 树摘要 + 当前包名，LLM 可判断应用状态；重复操作检测防止死循环
+- **打开应用**：✅ 优先 `Intent.getLaunchIntentForPackage`（100% 可靠），备选无障碍图标点击
+- **文本输入**：✅ `ACTION_SET_TEXT` + 剪贴板降级两级策略
 
 ---
 
@@ -459,10 +462,11 @@ DeepSeek API Key 配置在 `CloudConfig.kt`，不要硬编码在其他地方。
 | 日期 | 版本 | 说明 |
 |------|------|------|
 | 2026-03-09 | v1.0 | 初始版本，包含基本开发规范 |
+| 2026-03-11 | v1.1 | MainActivity 完整实现、真实截图接入、文本输入、多轮对话优化 |
 
 ---
 
-**最后更新**：2026-03-09  
+**最后更新**：2026-03-11  
 **维护者**：项目所有者
 
 ---
