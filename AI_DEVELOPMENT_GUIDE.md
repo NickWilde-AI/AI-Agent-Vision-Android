@@ -282,16 +282,17 @@ adb logcat -c
 
 ## 📚 重要文档
 
-说明文档集中在 **`docs/`**，根目录保留 **`README.md`**（门面）与本 **`AI_DEVELOPMENT_GUIDE.md`**（协作规范）。
+说明文档主要集中在 **`docs/`**；根目录保留 **`README.md`**（门面）、**`PHASE1_SUMMARY.md`**（Phase 1 单独归档）与本 **`AI_DEVELOPMENT_GUIDE.md`**（协作规范）。
 
 ### 必读
 1. **README.md** — 项目总览与文档导航表
 2. **docs/README.md** — 文档索引一览
 3. **docs/GETTING_STARTED.md** — 快速上手 + 详细测试（合并原 QUICKSTART / TESTING_GUIDE）
-4. **docs/ARCHITECTURE.md** — 完整架构（根目录 `Architecture.md` 仅为跳转）
+4. **docs/ARCHITECTURE.md** — 完整架构说明
 
 ### Phase 与扩展阅读
-- **docs/PHASE_HISTORY.md** — Phase 1～5 总结合并归档（原 PHASE*_SUMMARY.md）
+- **PHASE1_SUMMARY.md** — Phase 1（架构基座、状态机等），单独维护、不并入 PHASE_HISTORY
+- **docs/PHASE_HISTORY.md** — Phase 2～5 总结合并归档
 - **docs/API_EXAMPLES.md** — 云端 API 示例
 - **docs/AI_BOOTSTRAP_PROMPT.md** — 从零搭建用的 AI Prompt（原 ProductRequirements.md）
 
@@ -477,7 +478,7 @@ DeepSeek API Key 配置在 `CloudConfig.kt`，不要硬编码在其他地方。
 1. **阅读本文档**：了解项目基本信息和开发规范
 2. **阅读 README.md**：了解项目功能和架构
 3. **阅读 docs/ARCHITECTURE.md**：深入了解架构设计
-4. **阅读 docs/PHASE_HISTORY.md**：了解 Phase 演进与当前进度脉络
+4. **阅读 PHASE1_SUMMARY.md** 与 **docs/PHASE_HISTORY.md**：了解 Phase 1 基座与 Phase 2～5 演进脉络
 5. **询问用户需求**：明确用户想要开发什么功能
 6. **开始编码**：遵循本文档的所有规范
 

@@ -193,11 +193,9 @@ const val DEEPSEEK_API_KEY = "sk-your-key"
 ### 学习项目架构
 
 阅读文档：
-1. `docs/ARCHITECTURE.md` - 了解整体架构
-2. `docs/PHASE_HISTORY.md` - 状态机和意图路由
-3. `docs/PHASE_HISTORY.md` - 无障碍服务
-4. `docs/PHASE_HISTORY.md` - 动作执行
-5. `docs/PHASE_HISTORY.md` - 云端 API
+1. `docs/ARCHITECTURE.md` — 整体架构
+2. [`PHASE1_SUMMARY.md`](../PHASE1_SUMMARY.md) — Phase 1：基座、状态机与意图路由
+3. `docs/PHASE_HISTORY.md` — Phase 2～5：无障碍、动作执行、云端与 Agent（合并归档）
 
 ### 扩展功能
 
