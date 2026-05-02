@@ -285,10 +285,9 @@ adb logcat -c
 说明文档主要集中在 **`docs/`**；根目录保留 **`README.md`**（门面）与本 **`AI_DEVELOPMENT_GUIDE.md`**（协作规范）。
 
 ### 必读
-1. **README.md** — 项目总览与文档导航表
-2. **docs/README.md** — 文档索引一览
-3. **docs/GETTING_STARTED.md** — 快速上手 + 详细测试（合并原 QUICKSTART / TESTING_GUIDE）
-4. **docs/ARCHITECTURE.md** — 完整架构说明
+1. **README.md** — 项目总览与文档导航表（含 `docs/` 内文档入口）
+2. **docs/GETTING_STARTED.md** — 快速上手 + 详细测试（合并原 QUICKSTART / TESTING_GUIDE）
+3. **docs/ARCHITECTURE.md** — 完整架构说明
 
 ### Phase 总结（均在 `docs/`）
 - **docs/PHASE1_SUMMARY.md** — Phase 1：架构基座、状态机与意图路由
