@@ -282,21 +282,18 @@ adb logcat -c
 
 ## 📚 重要文档
 
-### 必读文档
-1. **README.md** - 项目总览和快速开始
-2. **Architecture.md** - 完整的架构设计文档
-3. **ProductRequirements.md** - 产品需求和业务背景
-4. **QUICKSTART.md** - 5 分钟快速上手指南
+说明文档集中在 **`docs/`**，根目录保留 **`README.md`**（门面）与本 **`AI_DEVELOPMENT_GUIDE.md`**（协作规范）。
 
-### Phase 开发文档
-- **PHASE1_SUMMARY.md** - 系统架构与基座搭建
-- **PHASE2_SUMMARY.md** - 无障碍视觉捕获与执行层
-- **PHASE3_SUMMARY.md** - 真实操作执行与集成
-- **PHASE4_SUMMARY.md** - 云端 API 集成
+### 必读
+1. **README.md** — 项目总览与文档导航表
+2. **docs/README.md** — 文档索引一览
+3. **docs/GETTING_STARTED.md** — 快速上手 + 详细测试（合并原 QUICKSTART / TESTING_GUIDE）
+4. **docs/ARCHITECTURE.md** — 完整架构（根目录 `Architecture.md` 仅为跳转）
 
-### 其他文档
-- **TESTING_GUIDE.md** - 功能测试和性能测试
-- **API_EXAMPLES.md** - 云端 API 使用示例
+### Phase 与扩展阅读
+- **docs/PHASE_HISTORY.md** — Phase 1～5 总结合并归档（原 PHASE*_SUMMARY.md）
+- **docs/API_EXAMPLES.md** — 云端 API 示例
+- **docs/AI_BOOTSTRAP_PROMPT.md** — 从零搭建用的 AI Prompt（原 ProductRequirements.md）
 
 ---
 
@@ -479,8 +476,8 @@ DeepSeek API Key 配置在 `CloudConfig.kt`，不要硬编码在其他地方。
 
 1. **阅读本文档**：了解项目基本信息和开发规范
 2. **阅读 README.md**：了解项目功能和架构
-3. **阅读 Architecture.md**：深入了解架构设计
-4. **查看最新 Phase 文档**：了解当前开发进度
+3. **阅读 docs/ARCHITECTURE.md**：深入了解架构设计
+4. **阅读 docs/PHASE_HISTORY.md**：了解 Phase 演进与当前进度脉络
 5. **询问用户需求**：明确用户想要开发什么功能
 6. **开始编码**：遵循本文档的所有规范
 

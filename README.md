@@ -211,19 +211,15 @@ timber: 5.0.1
 
 ## 📚 文档导航
 
-- [快速开始指南](QUICKSTART.md) - 5 分钟快速上手
-- [架构设计文档](Architecture.md) - 完整的架构设计和技术选型
-- [测试指南](TESTING_GUIDE.md) - 功能测试和性能测试
-- [API 使用示例](API_EXAMPLES.md) - 云端 API 使用方法
-- [产品需求文档](ProductRequirements.md) - 项目背景和业务需求
+说明类 Markdown 已收到 **`docs/`** 目录，避免根目录散乱。[**文档索引（一览表）**](docs/README.md)
 
-### Phase 开发文档
-
-- [Phase 1 总结](PHASE1_SUMMARY.md) - 系统架构与基座搭建
-- [Phase 2 总结](PHASE2_SUMMARY.md) - 无障碍视觉捕获与执行层
-- [Phase 3 总结](PHASE3_SUMMARY.md) - 真实操作执行与集成
-- [Phase 4 总结](PHASE4_SUMMARY.md) - 云端 API 集成
-- [Phase 5 总结](PHASE5_SUMMARY.md) - 云端优先全无障碍 AI Agent
+| 文档 | 说明 |
+|------|------|
+| [上手与测试](docs/GETTING_STARTED.md) | 快速启动 + 详细测试步骤（原 QUICKSTART + TESTING_GUIDE） |
+| [架构设计](docs/ARCHITECTURE.md) | 分层、状态机与组件职责（根目录 [Architecture.md](Architecture.md) 仅为跳转） |
+| [Phase 演进历史](docs/PHASE_HISTORY.md) | Phase 1～5 总结合并归档 |
+| [云端 API 示例](docs/API_EXAMPLES.md) | DeepSeek 等调用示例 |
+| [AI 脚手架 Prompt](docs/AI_BOOTSTRAP_PROMPT.md) | 从零生成项目的 Prompt（非运行时 API 文档） |
 
 ---
 
