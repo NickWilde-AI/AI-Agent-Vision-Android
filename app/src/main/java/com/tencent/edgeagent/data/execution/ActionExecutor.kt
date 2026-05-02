@@ -78,7 +78,7 @@ class ActionExecutor private constructor() {
     ): ExecutionResult {
         return when (params) {
             is ActionParams.LongClick -> {
-                val success = service.performClick(params.x, params.y, "长按")
+                val success = service.performLongClick(params.x, params.y, params.durationMs)
                 if (success) {
                     ExecutionResult.Success("长按成功: (${params.x}, ${params.y})")
                 } else {
@@ -140,28 +140,34 @@ class ActionExecutor private constructor() {
                     val rootNode = service.rootInActiveWindow
                     if (rootNode != null) {
                         val focusedNode = findFocusedEditableNode(rootNode)
-                        if (focusedNode != null) {
+                        val success = focusedNode?.let { node ->
                             val args = android.os.Bundle().apply {
                                 putCharSequence(
                                     android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                                     params.text
                                 )
                             }
-                            val success = focusedNode.performAction(
+                            node.performAction(
                                 android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
                                 args
                             )
-                            focusedNode.recycle()
-                            rootNode.recycle()
-                            if (success) {
-                                Timber.d("ACTION_SET_TEXT 成功: ${params.text}")
-                                return ExecutionResult.Success("输入文本成功: ${params.text}")
-                            }
-                            Timber.w("ACTION_SET_TEXT 失败，降级为剪贴板")
-                        } else {
-                            rootNode.recycle()
-                            Timber.w("未找到焦点节点，降级为剪贴板")
+                        } ?: false
+
+                        focusedNode?.recycle()
+                        rootNode.recycle()
+
+                        if (success) {
+                            Timber.d("ACTION_SET_TEXT 成功: ${params.text}")
+                            return ExecutionResult.Success("输入文本成功: ${params.text}")
                         }
+
+                        Timber.w(
+                            if (focusedNode == null) {
+                                "未找到焦点节点，降级为剪贴板"
+                            } else {
+                                "ACTION_SET_TEXT 失败，降级为剪贴板"
+                            }
+                        )
                     }
 
                     // Step 3: 降级 — 剪贴板粘贴方案
@@ -187,18 +193,20 @@ class ActionExecutor private constructor() {
         node: android.view.accessibility.AccessibilityNodeInfo
     ): android.view.accessibility.AccessibilityNodeInfo? {
         // 优先：当前节点已获焦点且可编辑
-        if (node.isFocused && node.isEditable) return node
+        if (node.isFocused && node.isEditable) return android.view.accessibility.AccessibilityNodeInfo.obtain(node)
         // 次优：当前节点可编辑（即使未显式获焦）
-        if (node.isEditable && node.isEnabled) return node
+        if (node.isEditable && node.isEnabled) return android.view.accessibility.AccessibilityNodeInfo.obtain(node)
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
-            val result = findFocusedEditableNode(child)
-            if (result != null) {
+            try {
+                val result = findFocusedEditableNode(child)
+                if (result != null) {
+                    return result
+                }
+            } finally {
                 child.recycle()
-                return result
             }
-            child.recycle()
         }
         return null
     }
@@ -384,84 +392,88 @@ class ActionExecutor private constructor() {
         appName: String,
         packageName: String
     ): Boolean {
-        try {
-            val rootNode = service.rootInActiveWindow ?: return false
-            
-            // 查找匹配的应用图标节点
-            val iconNode = findAppIconNode(rootNode, appName, packageName)
-            
-            if (iconNode != null) {
-                // 获取图标的屏幕坐标
-                val bounds = android.graphics.Rect()
-                iconNode.getBoundsInScreen(bounds)
-                
-                // 计算中心点
-                val centerX = bounds.centerX()
-                val centerY = bounds.centerY()
-                
+        val rootNode = service.rootInActiveWindow ?: return false
+        return try {
+            val iconBounds = findAppIconBounds(rootNode, appName)
+
+            if (iconBounds != null && !iconBounds.isEmpty) {
+                val centerX = iconBounds.centerX()
+                val centerY = iconBounds.centerY()
+
                 Timber.d("找到应用图标: $appName at ($centerX, $centerY)")
-                
-                // 点击图标
-                val success = service.performClick(centerX, centerY, "点击应用图标: $appName")
-                
-                iconNode.recycle()
-                rootNode.recycle()
-                
-                return success
+                service.performClick(centerX, centerY, "点击应用图标: $appName")
             } else {
-                Timber.w("未找到应用图标节点: $appName")
-                rootNode.recycle()
-                return false
+                Timber.w("未找到应用图标节点: $appName ($packageName)")
+                false
             }
         } catch (e: Exception) {
             Timber.e(e, "查找应用图标失败")
-            return false
+            false
+        } finally {
+            rootNode.recycle()
         }
     }
     
     /**
-     * 递归查找应用图标节点
+     * 递归查找应用图标节点坐标
      */
-    private fun findAppIconNode(
+    private fun findAppIconBounds(
         node: android.view.accessibility.AccessibilityNodeInfo,
-        appName: String,
-        packageName: String
-    ): android.view.accessibility.AccessibilityNodeInfo? {
-        // 检查当前节点
-        val text = node.text?.toString() ?: ""
-        val contentDesc = node.contentDescription?.toString() ?: ""
-        
-        // 匹配应用名称
-        if (text.contains(appName, ignoreCase = true) || 
-            contentDesc.contains(appName, ignoreCase = true)) {
-            // 确保节点可点击且可见
-            if (node.isClickable && node.isVisibleToUser) {
-                return node
-            }
-            // 如果当前节点不可点击，尝试找到可点击的父节点
-            var parent = node.parent
-            while (parent != null) {
-                if (parent.isClickable && parent.isVisibleToUser) {
-                    return parent
-                }
-                parent = parent.parent
+        appName: String
+    ): android.graphics.Rect? {
+        val text = node.text?.toString().orEmpty()
+        val contentDesc = node.contentDescription?.toString().orEmpty()
+        val matched = text.equals(appName, ignoreCase = true) ||
+                contentDesc.equals(appName, ignoreCase = true) ||
+                text.contains(appName, ignoreCase = true) ||
+                contentDesc.contains(appName, ignoreCase = true)
+
+        if (matched && node.isVisibleToUser) {
+            val clickableBounds = findClickableBoundsFromNodeOrParent(node)
+            if (clickableBounds != null && !clickableBounds.isEmpty) {
+                return clickableBounds
             }
         }
-        
-        // 递归查找子节点
+
         for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null) {
-                val result = findAppIconNode(child, appName, packageName)
+            val child = node.getChild(i) ?: continue
+            try {
+                val result = findAppIconBounds(child, appName)
                 if (result != null) {
-                    child.recycle()
                     return result
                 }
+            } finally {
                 child.recycle()
             }
         }
-        
+
         return null
+    }
+
+    private fun findClickableBoundsFromNodeOrParent(
+        node: android.view.accessibility.AccessibilityNodeInfo
+    ): android.graphics.Rect? {
+        if (node.isClickable && node.isVisibleToUser) {
+            return android.graphics.Rect().also { node.getBoundsInScreen(it) }
+        }
+
+        var parent = node.parent
+        while (parent != null) {
+            try {
+                if (parent.isClickable && parent.isVisibleToUser) {
+                    return android.graphics.Rect().also { parent.getBoundsInScreen(it) }
+                }
+                val nextParent = parent.parent
+                parent.recycle()
+                parent = nextParent
+            } catch (e: Exception) {
+                Timber.w(e, "查找可点击父节点失败")
+                parent.recycle()
+                return null
+            }
+        }
+
+        return android.graphics.Rect().also { node.getBoundsInScreen(it) }
     }
 
     /**

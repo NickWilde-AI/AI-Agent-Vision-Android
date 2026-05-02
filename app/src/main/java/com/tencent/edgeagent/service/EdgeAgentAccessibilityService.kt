@@ -133,6 +133,13 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
     }
 
     /**
+     * 执行长按
+     */
+    suspend fun performLongClick(x: Int, y: Int, durationMs: Long = 1000): Boolean {
+        return gestureExecutor.longClick(x, y, durationMs)
+    }
+
+    /**
      * 执行滑动
      */
     suspend fun performSwipe(startX: Int, startY: Int, endX: Int, endY: Int, durationMs: Long = 300): Boolean {

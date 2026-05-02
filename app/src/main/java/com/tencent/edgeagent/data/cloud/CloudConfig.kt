@@ -1,5 +1,7 @@
 package com.tencent.edgeagent.data.cloud
 
+import com.tencent.edgeagent.BuildConfig
+
 /**
  * 云端 API 配置
  * 
@@ -31,7 +33,7 @@ object CloudConfig {
      * - CloudProvider.ALIYUN（阿里云百炼）
      * - CloudProvider.DOUBAO（豆包）
      */
-    val PROVIDER = CloudProvider.ALIYUN
+    val PROVIDER = CloudProvider.DEEPSEEK
     
     /**
      * DeepSeek API Key
@@ -41,17 +43,17 @@ object CloudConfig {
      * 注意：请不要将 API Key 提交到 Git 仓库！
      * 建议使用环境变量或本地配置文件
      */
-    const val DEEPSEEK_API_KEY = "YOUR_DEEPSEEK_API_KEY_HERE"
+    val DEEPSEEK_API_KEY = BuildConfig.DEEPSEEK_API_KEY
     
     /**
      * 阿里云 API Key
      */
-    const val ALIYUN_API_KEY = "sk-8568a999e0ae4ebda36ce4fe1294bca4"
+    val ALIYUN_API_KEY = BuildConfig.ALIYUN_API_KEY
     
     /**
      * 豆包 API Key
      */
-    const val DOUBAO_API_KEY = "YOUR_DOUBAO_API_KEY_HERE"
+    val DOUBAO_API_KEY = BuildConfig.DOUBAO_API_KEY
     
     /**
      * 获取当前配置的 API Key

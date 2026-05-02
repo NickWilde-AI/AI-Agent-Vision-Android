@@ -6,6 +6,16 @@ plugins {
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Properties
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun localProperty(name: String): String = localProperties.getProperty(name, "")
 
 android {
     namespace = "com.tencent.edgeagent"
@@ -27,6 +37,9 @@ android {
         // 添加编译时间（毫秒时间戳）
         val buildTimeMs = System.currentTimeMillis()
         buildConfigField("long", "BUILD_TIME", "${buildTimeMs}L")
+        buildConfigField("String", "DEEPSEEK_API_KEY", "\"${localProperty("DEEPSEEK_API_KEY")}\"")
+        buildConfigField("String", "ALIYUN_API_KEY", "\"${localProperty("ALIYUN_API_KEY")}\"")
+        buildConfigField("String", "DOUBAO_API_KEY", "\"${localProperty("DOUBAO_API_KEY")}\"")
     }
 
     buildTypes {
