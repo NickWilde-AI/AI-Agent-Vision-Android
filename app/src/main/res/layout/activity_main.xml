@@ -31,7 +31,7 @@
                 android:textSize="30sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
-                android:textColor="@color/va_accent"
+                android:textColor="@color/va_text_primary"
                 android:letterSpacing="0.04" />
 
             <TextView
@@ -117,7 +117,7 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-            <!-- 屏幕截图 -->
+            <!-- 屏幕录制 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -135,7 +135,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="屏幕截图"
+                    android:text="屏幕录制"
                     android:textSize="14sp"
                     android:textColor="@color/va_text_primary" />
 
@@ -266,10 +266,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="等待执行..."
-                android:textSize="13sp"
-                android:textColor="@color/va_text_secondary"
+                android:textSize="14sp"
+                android:textColor="@color/va_text_primary"
                 android:fontFamily="monospace"
-                android:minLines="2"
+                android:minLines="3"
+                android:maxLines="5"
+                android:ellipsize="end"
+                android:background="@drawable/input_bg"
+                android:padding="12dp"
                 android:layout_marginBottom="10dp" />
 
             <View
@@ -312,8 +316,8 @@
                 android:id="@+id/et_custom_prompt"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="例如：打开微信发消息给 Nick Chen"
-                android:text="打开微信发送给 Nick Chen 消息"
+                android:hint="例如：打开微信给 Nick Chen 发送消息：你好"
+                android:text="打开微信给 Nick Chen 发送消息：你好"
                 android:minHeight="72dp"
                 android:gravity="top|start"
                 android:padding="12dp"
@@ -331,8 +335,8 @@
                 android:text="执 行 指 令"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                android:textColor="@color/va_bg_dark"
-                android:backgroundTint="@color/va_accent"
+                android:textColor="@color/white"
+                android:background="@drawable/button_primary"
                 android:letterSpacing="0.1" />
         </LinearLayout>
 
@@ -367,7 +371,7 @@
                     android:text="点击中心"
                     android:textSize="12sp"
                     android:textColor="@color/va_text_primary"
-                    android:backgroundTint="@color/va_surface2"
+                    android:background="@drawable/input_bg"
                     android:layout_marginEnd="6dp" />
 
                 <Button
@@ -378,7 +382,7 @@
                     android:text="向上滑动"
                     android:textSize="12sp"
                     android:textColor="@color/va_text_primary"
-                    android:backgroundTint="@color/va_surface2"
+                    android:background="@drawable/input_bg"
                     android:layout_marginStart="6dp" />
             </LinearLayout>
 
@@ -396,7 +400,7 @@
                     android:text="打开微信"
                     android:textSize="12sp"
                     android:textColor="@color/va_text_primary"
-                    android:backgroundTint="@color/va_surface2"
+                    android:background="@drawable/input_bg"
                     android:layout_marginEnd="6dp" />
 
                 <Button
@@ -407,7 +411,7 @@
                     android:text="打开美团"
                     android:textSize="12sp"
                     android:textColor="@color/va_text_primary"
-                    android:backgroundTint="@color/va_surface2"
+                    android:background="@drawable/input_bg"
                     android:layout_marginStart="6dp" />
             </LinearLayout>
 
@@ -418,7 +422,7 @@
                 android:text="打开电话"
                 android:textSize="12sp"
                 android:textColor="@color/va_text_primary"
-                android:backgroundTint="@color/va_surface2" />
+                android:background="@drawable/input_bg" />
         </LinearLayout>
 
     </LinearLayout>

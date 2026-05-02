@@ -99,7 +99,26 @@ app/src/main/java/com/tencent/edgeagent/
 
 **重要**：所有 Git Commit 必须使用中文，描述精简、逻辑清晰。
 
-**正确示例**：
+**推荐格式（概要 + `- ` 要点列表）**：改动较多时使用，便于对照审查；单行概要 + 每条 `- ` 一事，条目数量按需控制（常见 3～6 条）。
+
+```
+<type>: 单行概要（中文）
+
+- 第一点改动说明
+- 第二点改动说明
+```
+
+- `<type>` 建议使用约定前缀：`feat`（新能力）、`fix`（修复）、`refactor`（重构）、`chore`（杂项）等。
+- 第一段概要提纲挈领；正文列表对应代码里的模块或行为变化，避免堆砌长篇段落。
+
+**写入要点列表**：多条 `-m` 会在段落之间插入空行，列表不易紧凑；推荐把完整说明写入文件后用 `-F`，或直接 `git commit` 打开编辑器按上文格式书写。
+
+```bash
+# 例如 commit-msg.txt 内容为「概要 + 空行 + 若干 - 要点」：
+git commit -F commit-msg.txt
+```
+
+**简单改动**：仍可使用单行说明。
 ```bash
 git commit -m "新增本地模型推理引擎接口"
 git commit -m "修复屏幕截图权限问题"
@@ -127,19 +146,33 @@ git commit -m "fix bug"                # ❌ 没有说明修复了什么
 - ❌ 在用户没有明确要求时执行 push
 - ❌ 假设用户想要上传
 
-### 自动运行与调试规范 ⚠️ 新增
+### 自动运行与调试规范 ⚠️ 必须遵守
 
-**核心原则**：每次完成代码修改后，必须立即运行应用，模拟 Android Studio 的开发流程。
+**核心原则**：每次完成代码修改后，必须立即运行 Gradle 构建/安装检查，模拟 Android Studio 的开发流程。
+
+**本机 Android SDK 路径**：
+
+```text
+/Users/chenpeng/Library/Android/sdk
+```
+
+**本地配置要求**：项目根目录 `local.properties` 必须包含：
+
+```properties
+sdk.dir=/Users/chenpeng/Library/Android/sdk
+```
+
+`local.properties` 已被 `.gitignore` 忽略，允许存放本机 SDK 路径和本地 API Key，禁止提交到 Git。
 
 **标准流程**：
 1. **修改代码**：完成功能开发或 bug 修复
 2. **立即构建并安装**：执行 `./gradlew installDebug`
-3. **清空日志**：执行 `adb logcat -c`（⚠️ 重要：在安装后立即清空，确保只看到新的日志）
+3. **清空日志**：执行 `adb logcat -c`（在安装后立即清空，确保只看到新的日志）
 4. **检查构建结果**：
    - 如果构建失败，查看错误信息并立即修复
    - 如果构建成功，告知用户可以测试
 5. **等待用户操作**：用户在手机上测试应用
-6. **查看运行日志**：当用户要求查看日志时，执行 `adb logcat -d` 查看应用日志
+6. **查看运行日志**：当用户要求查看日志时，执行 `./view_logs.sh "关键字"` 或 `adb logcat -d` 查看应用日志
 7. **检查运行状态**：
    - 如果应用崩溃或报错，立即查看日志并修复
    - 如果应用正常运行，向用户报告成功
@@ -147,21 +180,25 @@ git commit -m "fix bug"                # ❌ 没有说明修复了什么
 
 **命令示例**：
 ```bash
-# 1. 构建并安装
+# 1. 确认 SDK 路径已写入 local.properties
+printf 'sdk.dir=/Users/chenpeng/Library/Android/sdk\n' >> local.properties
+
+# 2. 构建并安装
 ./gradlew installDebug
 
-# 2. 立即清空日志（重要！）
+# 3. 立即清空日志
 adb logcat -c
 
-# 3. 等待用户测试后，查看日志
-adb logcat -d | grep -E "VisionAgent|EdgeAgent|MainActivity|AndroidRuntime|FATAL|AgentStateMachine|MockModelEngine|ActionExecutor" | tail -2000
+# 4. 用户测试时按关键字实时看日志
+./view_logs.sh "AgentTask|DeepSeek|OPEN_APP|AndroidRuntime|ForegroundService"
 ```
 
 **注意事项**：
-- ❌ 不要等待用户要求才运行
-- ✅ 每次代码修改后主动运行
-- ✅ **运行后立即清空日志**，确保只看到新的日志
-- ✅ 发现错误立即修复，不要询问用户
+- ❌ 不要在代码修改后跳过 Gradle 运行检查
+- ✅ 每次代码修改后主动运行 `./gradlew installDebug`
+- ✅ 如果只是文档改动，可以不运行 Android 构建，但需要说明原因
+- ✅ 运行后立即清空日志，确保只看到新的日志
+- ✅ 发现错误立即修复，不要反复要求用户手动排查
 - ✅ 修复后重新运行，确保问题解决
 - ✅ 最多尝试 3 次修复，如果仍失败则向用户说明情况
 

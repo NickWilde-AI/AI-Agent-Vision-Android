@@ -3,19 +3,21 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- VisionAgent 主题色 -->
-    <color name="va_bg_dark">#0D0F14</color>
-    <color name="va_surface">#151820</color>
-    <color name="va_surface2">#1C2030</color>
-    <color name="va_accent">#00E5FF</color>
-    <color name="va_accent_dim">#1A3A3F</color>
-    <color name="va_green">#00E676</color>
-    <color name="va_green_dim">#0D2B1A</color>
-    <color name="va_red">#FF5252</color>
-    <color name="va_red_dim">#2B0D0D</color>
-    <color name="va_orange">#FFAB40</color>
-    <color name="va_orange_dim">#2B1E0A</color>
-    <color name="va_text_primary">#EAEEFF</color>
-    <color name="va_text_secondary">#7A8299</color>
-    <color name="va_divider">#232840</color>
+    <!-- VisionAgent 日间模式：白色为主，降低装饰色饱和度 -->
+    <color name="va_bg_dark">#F7F8FA</color>
+    <color name="va_surface">#FFFFFFFF</color>
+    <color name="va_surface2">#F1F3F6</color>
+    <color name="va_accent">#2563EB</color>
+    <color name="va_accent_dim">#EAF1FF</color>
+    <color name="va_accent_soft">#DBEAFE</color>
+    <color name="va_purple">#7C3AED</color>
+    <color name="va_green">#16A34A</color>
+    <color name="va_green_dim">#EAF7EE</color>
+    <color name="va_red">#DC2626</color>
+    <color name="va_red_dim">#FDECEC</color>
+    <color name="va_orange">#D97706</color>
+    <color name="va_orange_dim">#FFF7ED</color>
+    <color name="va_text_primary">#111827</color>
+    <color name="va_text_secondary">#6B7280</color>
+    <color name="va_divider">#E5E7EB</color>
 </resources>

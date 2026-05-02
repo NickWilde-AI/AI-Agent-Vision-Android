@@ -14,18 +14,18 @@ import timber.log.Timber
  * 
  * 核心功能：
  * 1. 多轮对话：支持复杂的多步骤任务
- * 2. 视觉反馈：每次操作后截图验证
+ * 2. 视觉反馈：每次操作后屏幕捕获验证
  * 3. 智能重试：失败后自动重试
  * 4. 任务分解：将复杂任务分解为多个步骤
  * 
  * 工作流程：
  * 用户："打开微信发送给 Nick Chen 消息"
  *   ↓
- * 第1轮：LLM 分析 → "先回到桌面" → 执行 HOME → 截图验证
+ * 第1轮：LLM 分析 → "先打开微信" → 执行 OPEN_APP → 屏幕捕获验证
  *   ↓
- * 第2轮：LLM 分析桌面 → "点击微信图标" → 执行点击 → 截图验证
+ * 第2轮：LLM 分析微信界面 → "点击搜索" → 执行点击 → 屏幕捕获验证
  *   ↓
- * 第3轮：LLM 分析微信界面 → "点击搜索" → 执行点击 → 截图验证
+ * 第3轮：LLM 分析搜索入口 → "输入联系人" → 执行输入 → 屏幕捕获验证
  *   ↓
  * ... 持续交互直到任务完成
  */
@@ -35,7 +35,7 @@ class AgentExecutor private constructor() {
     private val actionExecutor = ActionExecutor.getInstance()
     
     companion object {
-        private const val MAX_ROUNDS = 10 // 最大对话轮数
+        private const val MAX_ROUNDS = 16 // 最大对话轮数
         private const val SCREENSHOT_DELAY = 1000L // 截图延迟（等待界面加载）
         private const val OPEN_APP_DELAY = 2500L // 打开应用后的等待时间（让应用完全启动）
         
@@ -75,22 +75,31 @@ class AgentExecutor private constructor() {
         
         while (currentRound < MAX_ROUNDS && !isTaskComplete) {
             currentRound++
-            Timber.i("[AgentTask] round=$currentRound package=${currentScreenData?.currentPackage} uiTree=${!currentScreenData?.uiTreeText.isNullOrBlank()}")
+            Timber.i("[AgentTask] round=$currentRound package=${currentScreenData?.currentPackage} uiTree=${hasUsableUiTree(currentScreenData?.uiTreeText)} screenshot=${currentScreenData?.hasRealScreenshot}")
             onProgress("[$currentRound/$MAX_ROUNDS] 分析当前屏幕：${currentScreenData?.currentPackage ?: "未知包名"}")
             
             try {
-                // 构建提示词（包含历史对话）
-                val prompt = buildPrompt(userGoal, conversationHistory, currentRound, currentScreenData!!)
-                
-                // 调用 LLM 分析当前屏幕
-                val response = cloudManager.inference(
-                    image = currentScreenData!!.bitmap,
-                    prompt = prompt,
-                    uiTree = currentScreenData.uiTreeText
+                val localResponse = buildDeterministicResponseIfNeeded(
+                    userGoal,
+                    currentScreenData!!,
+                    currentRound,
+                    conversationHistory
                 )
+
+                // 构建提示词（包含历史对话）
+                val response = localResponse ?: run {
+                    val prompt = buildPrompt(userGoal, conversationHistory, currentRound, currentScreenData!!)
+
+                    // 调用 LLM 分析当前屏幕
+                    cloudManager.inference(
+                        image = currentScreenData!!.bitmap,
+                        prompt = prompt,
+                        uiTree = currentScreenData.uiTreeText
+                    )
+                }
                 
                 Timber.i("[AgentTask] round=$currentRound llm action=${response.action} confidence=${response.confidence} params=${response.actionParams}")
-                onProgress("[$currentRound/$MAX_ROUNDS] 决策：${response.action} 置信度=${"%.2f".format(response.confidence)}")
+                onProgress("[$currentRound/$MAX_ROUNDS] 决策：${describeAction(response)}")
                 
                 // 检查是否完成
                 if (response.action == ActionType.NO_ACTION) {
@@ -125,7 +134,7 @@ class AgentExecutor private constructor() {
                 )
                 
                 // 执行操作
-                onProgress("[$currentRound/$MAX_ROUNDS] 执行：${response.action}")
+                onProgress("[$currentRound/$MAX_ROUNDS] 执行：${describeAction(response)}")
                 val executionResult = actionExecutor.execute(response)
                 
                 // 更新对话历史
@@ -152,7 +161,7 @@ class AgentExecutor private constructor() {
                 delay(waitTime)
                 
                 // 截图验证
-                onProgress("[$currentRound/$MAX_ROUNDS] 截图验证并提取 UI 树")
+                onProgress("[$currentRound/$MAX_ROUNDS] 屏幕捕获验证并提取 UI 树")
                 currentScreenData = captureScreen()
                 if (currentScreenData == null) {
                     return TaskExecutionResult.Failure("无法捕获屏幕数据")
@@ -175,6 +184,93 @@ class AgentExecutor private constructor() {
         )
     }
     
+    /**
+     * 确定性首步路由。
+     *
+     * 只处理“当前还在 VisionAgent 自己页面，但用户目标明显是打开某个 App/进入微信发消息”的场景。
+     * 这样可以避免云端模型被本 App 的快捷按钮误导，后续进入目标 App 后仍然走
+     * “屏幕捕获 → UI 树/坐标分析 → 无障碍执行”的闭环。
+     */
+    private fun buildDeterministicResponseIfNeeded(
+        userGoal: String,
+        screenData: ScreenData,
+        currentRound: Int,
+        history: List<ConversationTurn>
+    ): AgentResponse? {
+        val packageName = resolveTargetPackage(userGoal)
+        if (packageName != null &&
+            screenData.currentPackage == packageName &&
+            !hasUsableUiTree(screenData.uiTreeText) &&
+            !screenData.hasRealScreenshot &&
+            hasRecentBlankObservations(history, packageName)
+        ) {
+            Timber.w("[AgentTask] blank observation in target app, BACK to recover package=$packageName round=$currentRound")
+            return AgentResponse(
+                source = InferenceSource.LOCAL_RAG,
+                action = ActionType.BACK,
+                actionParams = ActionParams.NoAction(message = "当前目标 App 无有效 UI 树且无真实截图，先返回恢复可观测状态"),
+                confidence = 1.0f,
+                inferenceTimeMs = 0L,
+                rawOutput = "deterministic_recover_blank_target_app:$packageName",
+                requiresConfirmation = false
+            )
+        }
+
+        if (screenData.currentPackage != "com.tencent.edgeagent") return null
+
+        if (packageName == null) return null
+        Timber.i("[AgentTask] deterministic OPEN_APP package=$packageName round=$currentRound goal=$userGoal")
+
+        return AgentResponse(
+            source = InferenceSource.LOCAL_RAG,
+            action = ActionType.OPEN_APP,
+            actionParams = ActionParams.OpenApp(packageName = packageName),
+            confidence = 1.0f,
+            inferenceTimeMs = 0L,
+            rawOutput = "deterministic_open_app:$packageName",
+            requiresConfirmation = false
+        )
+    }
+
+    private fun hasRecentBlankObservations(history: List<ConversationTurn>, packageName: String): Boolean {
+        return history.asReversed()
+            .take(2)
+            .count { turn ->
+                turn.screenData.currentPackage == packageName &&
+                    !turn.screenData.hasRealScreenshot &&
+                    !hasUsableUiTree(turn.screenData.uiTreeText)
+            } >= 1
+    }
+
+    private fun resolveTargetPackage(userGoal: String): String? {
+        val normalized = userGoal.lowercase()
+        return when {
+            userGoal.contains("微信") || normalized.contains("wechat") || userGoal.contains("发消息") -> "com.tencent.mm"
+            userGoal.contains("美团") -> "com.sankuai.meituan"
+            userGoal.contains("支付宝") -> "com.eg.android.AlipayGphone"
+            userGoal.contains("淘宝") -> "com.taobao.taobao"
+            userGoal.contains("抖音") -> "com.ss.android.ugc.aweme"
+            userGoal.contains("QQ", ignoreCase = true) -> "com.tencent.mobileqq"
+            userGoal.contains("电话") || userGoal.contains("联系人") -> "com.android.contacts"
+            userGoal.contains("设置") -> "com.android.settings"
+            else -> null
+        }
+    }
+
+    private fun describeAction(response: AgentResponse): String {
+        val detail = when (val params = response.actionParams) {
+            is ActionParams.Click -> "点击 ${params.description.ifBlank { "(${params.x},${params.y})" }}"
+            is ActionParams.InputText -> "输入文本：${params.text}"
+            is ActionParams.OpenApp -> "打开应用：${params.packageName}"
+            is ActionParams.Swipe -> "滑动 (${params.startX},${params.startY})→(${params.endX},${params.endY})"
+            is ActionParams.Wait -> "等待 ${params.durationMs}ms"
+            is ActionParams.LongClick -> "长按 (${params.x},${params.y})"
+            is ActionParams.DeviceControl -> "设备控制：${params.controlType}"
+            is ActionParams.NoAction -> params.message.ifBlank { response.action.name }
+        }
+        return "${response.action} · $detail · 置信度=${"%.2f".format(response.confidence)}"
+    }
+
     /**
      * 检测是否重复操作（防止死循环）
      * 
@@ -236,7 +332,15 @@ class AgentExecutor private constructor() {
         prompt.append("当前是第 $currentRound 轮对话（最多 $MAX_ROUNDS 轮）。\n")
         prompt.append("当前屏幕尺寸: ${currentScreenData.screenWidth}x${currentScreenData.screenHeight}\n")
         prompt.append("当前应用包名: ${currentScreenData.currentPackage ?: "未知"}\n")
-        prompt.append("当前 UI 树是否可用: ${!currentScreenData.uiTreeText.isNullOrBlank()}\n\n")
+        prompt.append("当前 UI 树是否可用: ${hasUsableUiTree(currentScreenData.uiTreeText)}\n")
+        prompt.append("当前真实截图是否可用: ${currentScreenData.hasRealScreenshot}\n")
+        if (!currentScreenData.hasRealScreenshot) {
+            prompt.append("重要：当前截图只是空白占位图，不能据此判断页面视觉内容、场景、室内/室外或图片内容；只能依据 UI 树、包名和历史操作决策。\n")
+        }
+        if (!hasUsableUiTree(currentScreenData.uiTreeText)) {
+            prompt.append("重要：当前 UI 树没有有效节点。不要臆测页面内容；除非已有明确坐标依据，否则优先 WAIT、BACK 或使用系统级导航恢复可观测状态。\n")
+        }
+        prompt.append("\n")
 
         if (history.isNotEmpty()) {
             prompt.append("历史操作记录：\n")
@@ -260,22 +364,49 @@ class AgentExecutor private constructor() {
         }
 
         prompt.append("【决策规则】\n")
-        prompt.append("1. 这是云端优先的全无障碍 Agent 流程，优先用 UI 树中的 bounds/center 坐标执行 CLICK\n")
-        prompt.append("2. 如果当前包名已是目标应用，不要再执行 OPEN_APP，直接在界面内操作\n")
-        prompt.append("3. 如果不在目标应用，第一步可返回 OPEN_APP；执行层会通过 HOME→找图标→点击完成\n")
-        prompt.append("4. 如果需要找联系人、商品、店铺，优先点击搜索入口，再输入关键词\n")
-        prompt.append("5. 如果已连续 WAIT 超过 2 次，改用其他操作（如 HOME、BACK、CLICK 或 SWIPE）\n")
-        prompt.append("6. 如果 UI 树为空，执行 HOME 回到桌面重新开始\n")
-        prompt.append("7. 任务完成后返回 NO_ACTION\n")
-        prompt.append("8. 每次只返回一个操作步骤，等待下一轮截图验证\n")
+        prompt.append("1. 你是通用 Android Agent，不要套用固定 App 流程；根据当前屏幕和用户目标动态决定下一步。\n")
+        prompt.append("2. 优先使用 UI 树中的可见文本、contentDescription、viewId、bounds/center 来定位元素。\n")
+        prompt.append("3. 当前已经在目标 App 内时，不要再 OPEN_APP；直接继续界面内操作。\n")
+        prompt.append("4. 需要查找对象时，先找到搜索入口；搜索框获得焦点后，用 INPUT_TEXT 输入搜索关键词。\n")
+        prompt.append("5. 需要发送/提交内容时，先点击输入框，再 INPUT_TEXT 输入正文，最后点击发送/提交按钮。\n")
+        prompt.append("6. 如果没有看到目标元素，可以 WAIT、SWIPE、BACK 或点击合理的导航入口；不要连续重复同一无效动作。\n")
+        prompt.append("7. UI 树为空且没有真实截图时，不要根据空白图或想象判断当前页面；最多等待一轮，之后应 BACK 或使用可确定的系统导航恢复可操作状态。\n")
+        prompt.append("8. 任务完成后返回 NO_ACTION。\n")
+        prompt.append("9. 每次只返回一个最小可执行操作，等待下一轮屏幕捕获验证。\n")
 
         return prompt.toString()
+    }
+
+    private fun hasUsableUiTree(uiTreeText: String?): Boolean {
+        if (uiTreeText.isNullOrBlank()) return false
+        if (uiTreeText.contains("Error:")) return false
+        val clickableCount = Regex("Clickable Elements \\((\\d+)\\)")
+            .find(uiTreeText)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull() ?: 0
+        val hasNodeContent = uiTreeText
+            .lineSequence()
+            .dropWhile { !it.startsWith("Node Tree:") }
+            .drop(1)
+            .any { line ->
+                val trimmed = line.trim()
+                trimmed.startsWith("[") && (
+                    trimmed.contains(" text='") ||
+                        trimmed.contains(" desc='") ||
+                        trimmed.contains(" id='") ||
+                        trimmed.contains("[clickable]") ||
+                        trimmed.contains("[editable]") ||
+                        trimmed.contains("[scrollable]")
+                    )
+            }
+        return clickableCount > 0 || hasNodeContent
     }
     
     /**
      * 捕获屏幕数据
      * 如果 MediaProjection 不可用，返回包含真实 UI 树但空白 Bitmap 的 ScreenData，
-     * 而不是 null，避免多轮对话因截图失败而中断。
+     * 而不是 null，避免多轮对话因屏幕捕获失败而中断。
      */
     private suspend fun captureScreen(): ScreenData? {
         return try {
@@ -302,7 +433,8 @@ class AgentExecutor private constructor() {
                 uiTreeText = uiTreeText,
                 screenWidth = displayMetrics.widthPixels,
                 screenHeight = displayMetrics.heightPixels,
-                currentPackage = currentPackage
+                currentPackage = currentPackage,
+                hasRealScreenshot = false
             )
         } catch (e: Exception) {
             Timber.e(e, "捕获屏幕失败")

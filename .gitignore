@@ -1,6 +1,8 @@
 *.iml
 .gradle
 /local.properties
+/edgeagent_runtime.log
+/edgeagent_logcat.pid
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml

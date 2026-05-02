@@ -49,7 +49,8 @@ class DeepSeekClient(
             val systemPrompt = buildSystemPrompt()
             
             // 构建用户消息（包含图片和文本）
-            val userMessage = buildUserMessage(image, prompt, uiTree)
+            val includeImage = !prompt.contains("当前真实截图是否可用: false")
+            val userMessage = buildUserMessage(image, prompt, uiTree, includeImage)
             
             // 发送请求
             val response = sendRequest(systemPrompt, userMessage)
@@ -111,10 +112,10 @@ class DeepSeekClient(
 1. 你只能返回一个 JSON 对象，不能输出解释性文本、Markdown 或代码块。
 2. 优先使用用户消息中的 "UI Tree with bounds" 和 "Clickable Elements"。这些节点已经包含 bounds=[left,top,right,bottom] 和 center=(x,y)。
 3. 点击时优先选择目标元素的 center 坐标，不要凭空猜坐标。
-4. 每轮只做一个最小可执行动作：看当前屏幕 → 决定下一步 → 等待下一轮截图验证。
+4. 每轮只做一个最小可执行动作：看当前屏幕 → 决定下一步 → 等待下一轮屏幕捕获验证。
 5. 如果当前屏幕还没加载完成，返回 WAIT。
 6. 如果用户目标已完成，返回 NO_ACTION。
-7. 除非当前 UI 无法继续操作，否则不要直接跳过中间步骤。
+7. 当前在目标 App 内时不要再 OPEN_APP；继续根据屏幕内容执行下一步。
 
 支持的 action：
 - CLICK: 点击 UI 元素或坐标
@@ -124,6 +125,7 @@ class DeepSeekClient(
 - OPEN_APP: 打开应用。执行层会优先走无障碍路径：HOME → 查找图标 → 点击。
 - BACK: 返回
 - HOME: 回到主屏幕
+- RECENTS: 打开最近任务/后台应用列表
 - WAIT: 等待页面加载
 - NO_ACTION: 任务完成
 
@@ -155,7 +157,7 @@ class DeepSeekClient(
 3. SWIPE: {"startX": 540, "startY": 1800, "endX": 540, "endY": 600, "durationMs": 400}
 4. INPUT_TEXT: {"text": "你好", "targetX": 540, "targetY": 2100}
 5. OPEN_APP: {"packageName": "com.tencent.mm", "appName": "微信"}
-6. BACK/HOME/NO_ACTION: {"message": "原因"}
+6. BACK/HOME/RECENTS/NO_ACTION: {"message": "原因"}
 7. WAIT: {"durationMs": 1000}
 
 决策规则：
@@ -164,19 +166,20 @@ class DeepSeekClient(
 3. 如果要找联系人、商品、店铺、搜索框，优先点击搜索入口，然后 INPUT_TEXT。
 4. 如果当前在目标 App 内，不要再 OPEN_APP；继续执行 App 内步骤。
 5. 如果当前不在目标 App，第一步可以 OPEN_APP。执行层会用无障碍方式打开。
-6. 如果屏幕没有目标元素，可 SWIPE 或 BACK；不要重复同一个无效动作。
-7. 如果连续历史动作显示失败，要换一种路径，比如 HOME 后重试、点击搜索入口、或返回上一级。
-8. 所有坐标必须来自 UI 树 bounds/center 或在屏幕范围内。
+6. 如果屏幕没有目标元素，可 WAIT、SWIPE 或 BACK；不要重复同一个无效动作。
+7. 所有坐标必须来自 UI 树 bounds/center、可点击元素摘要，或在屏幕范围内。
         """.trimIndent()
     }
 
     /**
      * 构建用户消息
      */
-    private fun buildUserMessage(image: Bitmap, prompt: String, uiTree: String?): String {
-        val compressedImage = compressImage(image)
-        val base64Image = bitmapToBase64(compressedImage)
-        
+    private fun buildUserMessage(
+        image: Bitmap,
+        prompt: String,
+        uiTree: String?,
+        includeImage: Boolean
+    ): String {
         val messageBuilder = StringBuilder()
         messageBuilder.append("用户请求：$prompt\n\n")
         
@@ -184,8 +187,14 @@ class DeepSeekClient(
             messageBuilder.append("屏幕 UI 结构：\n$uiTree\n\n")
         }
         
-        messageBuilder.append("屏幕截图（Base64）：\n")
-        messageBuilder.append("data:image/jpeg;base64,$base64Image")
+        if (includeImage) {
+            val compressedImage = compressImage(image)
+            val base64Image = bitmapToBase64(compressedImage)
+            messageBuilder.append("屏幕截图（Base64）：\n")
+            messageBuilder.append("data:image/jpeg;base64,$base64Image")
+        } else {
+            messageBuilder.append("屏幕截图：不可用。不要根据截图判断当前页面视觉内容、场景或图片，只能依据 UI 树和文本上下文。")
+        }
         
         return messageBuilder.toString()
     }
@@ -367,7 +376,7 @@ class DeepSeekClient(
             ActionType.OPEN_APP -> {
                 ActionParams.OpenApp(
                     packageName = paramsJson.optString("packageName", ""),
-                    activityName = paramsJson.optString("activityName", null)
+                    activityName = paramsJson.optString("activityName").takeIf { it.isNotBlank() }
                 )
             }
 
@@ -389,7 +398,7 @@ class DeepSeekClient(
                 )
             }
             
-            ActionType.BACK, ActionType.HOME, ActionType.NO_ACTION -> {
+            ActionType.BACK, ActionType.HOME, ActionType.RECENTS, ActionType.NO_ACTION -> {
                 ActionParams.NoAction(
                     message = paramsJson.optString("message", "")
                 )

@@ -16,17 +16,18 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import com.tencent.edgeagent.R
 import timber.log.Timber
 import java.nio.ByteBuffer
 
 /**
- * 屏幕截图前台服务
+ * 屏幕录制前台服务
  * 
  * 职责：
  * 1. 管理 MediaProjection 生命周期
- * 2. 提供屏幕截图功能
+ * 2. 通过录制帧提供当前屏幕图像
  * 3. 维持前台服务状态
  */
 class ScreenCaptureService : Service() {
@@ -58,7 +59,7 @@ class ScreenCaptureService : Service() {
         fun getInstance(): ScreenCaptureService? = instance
         
         /**
-         * 启动截图服务
+         * 启动屏幕录制服务
          */
         fun start(context: Context, resultCode: Int, data: Intent) {
             val intent = Intent(context, ScreenCaptureService::class.java).apply {
@@ -85,7 +86,7 @@ class ScreenCaptureService : Service() {
         }
         
         /**
-         * 请求截图
+         * 请求当前屏幕帧
          */
         fun captureScreen(callback: (Bitmap) -> Unit) {
             instance?.captureCallback = callback
@@ -108,6 +109,10 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_START) {
+            promoteToForeground()
+        }
+
         when (intent?.action) {
             ACTION_START -> {
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, -1)
@@ -118,11 +123,12 @@ class ScreenCaptureService : Service() {
                     intent.getParcelableExtra(EXTRA_DATA)
                 }
                 
-                if (resultCode != -1 && data != null) {
-                    startForeground(NOTIFICATION_ID, createNotification())
+                Timber.d("收到屏幕录制授权参数: resultCode=$resultCode, data=${data != null}")
+
+                if (data != null) {
                     startMediaProjection(resultCode, data)
                 } else {
-                    Timber.e("启动参数无效")
+                    Timber.e("启动参数无效：MediaProjection data 为空")
                     stopSelf()
                 }
             }
@@ -148,6 +154,23 @@ class ScreenCaptureService : Service() {
     }
 
     /**
+     * 立即提升为前台服务，避免 Android 判定 startForegroundService 后未及时调用 startForeground。
+     */
+    private fun promoteToForeground() {
+        val notification = createNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        Timber.d("ScreenCaptureService 已进入前台")
+    }
+
+    /**
      * 创建通知
      */
     private fun createNotification(): Notification {
@@ -155,10 +178,10 @@ class ScreenCaptureService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "屏幕截图服务",
+                "屏幕录制服务",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "VisionAgent 正在捕获屏幕内容"
+                description = "VisionAgent 正在录制屏幕以分析当前界面"
             }
             
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -168,7 +191,7 @@ class ScreenCaptureService : Service() {
         // 创建通知
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("VisionAgent 运行中")
-            .setContentText("正在捕获屏幕内容")
+            .setContentText("正在录制屏幕以分析当前界面")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)

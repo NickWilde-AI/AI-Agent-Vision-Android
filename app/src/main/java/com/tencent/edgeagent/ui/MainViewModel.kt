@@ -114,7 +114,7 @@ class MainViewModel : ViewModel() {
 
                 if (useCloudAgent) {
                     // Phase 5：云端优先的全无障碍多轮 Agent。
-                    // 所有任务先走“截图/UI树 → 云端决策 → 无障碍执行 → 截图验证”的闭环。
+                    // 所有任务先走“屏幕捕获/UI树 → 云端决策 → 无障碍执行 → 屏幕捕获验证”的闭环。
                     Timber.i("[AgentFlow] 使用云端多轮全无障碍模式: intent=${intent.type}")
                     executeMultiRoundTask(userInput)
                 } else {

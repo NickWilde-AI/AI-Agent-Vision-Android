@@ -31,9 +31,9 @@ import java.util.Locale
  *
  * 职责：
  * 1. 展示 Agent 运行状态
- * 2. 权限管理（无障碍服务 + 屏幕截图）
+ * 2. 权限管理（无障碍服务 + 屏幕录制）
  * 3. 接收用户指令并触发执行
- * 4. 管理 MediaProjection 授权流程
+ * 4. 管理 MediaProjection 屏幕录制授权流程
  */
 class MainActivity : AppCompatActivity() {
 
@@ -65,12 +65,12 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            Timber.i("屏幕截图授权成功")
-            // 启动截图前台服务
+            Timber.i("屏幕录制授权成功")
+            // 启动屏幕录制前台服务
             ScreenCaptureService.start(this, result.resultCode, result.data!!)
             updateScreenCaptureStatus(true)
         } else {
-            Timber.w("屏幕截图授权被拒绝")
+            Timber.w("屏幕录制授权被拒绝")
             updateScreenCaptureStatus(false)
         }
     }
@@ -144,7 +144,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        // 去授权屏幕截图
+        // 去授权屏幕录制
         btnRequestScreenCapture.setOnClickListener {
             requestScreenCapturePermission()
         }
@@ -239,7 +239,7 @@ class MainActivity : AppCompatActivity() {
         val accessibilityEnabled = EdgeAgentAccessibilityService.getInstance() != null
         updateAccessibilityStatus(accessibilityEnabled)
 
-        // 屏幕截图服务
+        // 屏幕录制服务
         val screenCaptureEnabled = ScreenCaptureService.getInstance() != null
         updateScreenCaptureStatus(screenCaptureEnabled)
     }
@@ -263,10 +263,12 @@ class MainActivity : AppCompatActivity() {
             tvCaptureDot.setBackgroundResource(R.drawable.dot_green)
             tvScreenCaptureStatus.text = "已授权"
             tvScreenCaptureStatus.setTextColor(getColor(R.color.va_green))
+            btnRequestScreenCapture.visibility = View.GONE
         } else {
             tvCaptureDot.setBackgroundResource(R.drawable.dot_red)
             tvScreenCaptureStatus.text = "未授权"
             tvScreenCaptureStatus.setTextColor(getColor(R.color.va_red))
+            btnRequestScreenCapture.visibility = View.VISIBLE
         }
     }
 

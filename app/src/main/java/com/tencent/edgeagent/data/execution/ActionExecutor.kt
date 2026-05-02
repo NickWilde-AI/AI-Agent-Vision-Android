@@ -28,7 +28,7 @@ class ActionExecutor private constructor() {
             return ExecutionResult.Failure("无障碍服务未启动，请在设置中开启")
         }
 
-        Timber.d("开始执行动作: ${response.action}")
+        Timber.d("开始执行动作: ${response.action}, params=${response.actionParams}")
 
         return try {
             when (response.action) {
@@ -38,6 +38,7 @@ class ActionExecutor private constructor() {
                 ActionType.INPUT_TEXT -> executeInputText(service, response.actionParams)
                 ActionType.BACK -> executeBack(service)
                 ActionType.HOME -> executeHome(service)
+                ActionType.RECENTS -> executeRecents(service)
                 ActionType.OPEN_APP -> executeOpenApp(response.actionParams)
                 ActionType.DEVICE_CONTROL -> executeDeviceControl(response.actionParams)
                 ActionType.WAIT -> executeWait(response.actionParams)
@@ -271,16 +272,27 @@ class ActionExecutor private constructor() {
     }
 
     /**
+     * 执行最近任务
+     */
+    private fun executeRecents(service: EdgeAgentAccessibilityService): ExecutionResult {
+        val success = service.performRecents()
+        return if (success) {
+            ExecutionResult.Success("打开最近任务成功")
+        } else {
+            ExecutionResult.Failure("打开最近任务失败")
+        }
+    }
+
+    /**
      * 执行打开应用
      *
-     * 全无障碍优先策略：
+     * 稳定优先策略：
      * 1. 检测是否已在目标应用内 → 直接返回成功
-     * 2. 回到桌面
-     * 3. 通过 Launcher UI 树查找目标应用图标并点击
+     * 2. 优先使用系统 Launcher Intent 启动目标应用
+     * 3. Intent 不可用时，回退到无障碍桌面找图标
      * 4. 如果当前桌面页找不到，左右滑动翻页继续查找
      *
-     * 说明：这里刻意不优先使用 Intent，目标是模拟真人操作路径，便于后续演进到
-     * “看屏幕 → 决策 → 点击”的豆包手机助手形态。
+     * 说明：发送微信消息这类复杂任务必须先稳定进入目标应用，再交给 LLM 做界面内操作。
      */
     private suspend fun executeOpenApp(params: ActionParams): ExecutionResult {
         return when (params) {
@@ -302,7 +314,14 @@ class ActionExecutor private constructor() {
 
                     val appName = getAppName(service.applicationContext, packageName)
                         ?: inferAppNameFromPackage(packageName)
-                    Timber.i("[OPEN_APP] 无障碍打开应用: appName=$appName, package=$packageName")
+                    Timber.i("[OPEN_APP] 打开应用: appName=$appName, package=$packageName")
+
+                    val intentLaunchResult = launchAppByIntent(service.applicationContext, packageName, appName)
+                    if (intentLaunchResult != null) {
+                        return intentLaunchResult
+                    }
+
+                    Timber.w("[OPEN_APP] Intent 启动不可用，回退无障碍找图标: $appName")
 
                     val homeSuccess = service.performHome()
                     if (!homeSuccess) {
@@ -364,6 +383,33 @@ class ActionExecutor private constructor() {
             pm.getApplicationLabel(appInfo).toString()
         } catch (e: Exception) {
             Timber.w(e, "获取应用名称失败，使用包名推断: $packageName")
+            null
+        }
+    }
+
+    private suspend fun launchAppByIntent(
+        context: android.content.Context,
+        packageName: String,
+        appName: String
+    ): ExecutionResult? {
+        return try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+                ?: return null
+            launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(launchIntent)
+            kotlinx.coroutines.delay(1800)
+
+            val service = EdgeAgentAccessibilityService.getInstance()
+            val currentPackage = service?.let { getCurrentPackage(it) }
+            if (currentPackage == packageName) {
+                Timber.i("[OPEN_APP] Intent 启动成功: $packageName")
+                ExecutionResult.Success("已启动应用: $appName")
+            } else {
+                Timber.w("[OPEN_APP] Intent 已发出，当前包名=$currentPackage，继续等待界面切换")
+                ExecutionResult.Success("已请求启动应用: $appName")
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "[OPEN_APP] Intent 启动失败: $packageName")
             null
         }
     }

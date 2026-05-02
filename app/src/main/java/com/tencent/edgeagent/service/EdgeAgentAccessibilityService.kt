@@ -24,7 +24,7 @@ import kotlin.coroutines.suspendCoroutine
  * EdgeAgent 无障碍服务
  * 
  * 职责：
- * 1. 捕获屏幕截图（高性能，内存安全）
+ * 1. 捕获屏幕录制帧（高性能，内存安全）
  * 2. 提取 UI 树信息
  * 3. 执行手势操作
  * 4. 与 Domain 层通信
@@ -74,8 +74,8 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * 捕获当前屏幕数据（截图 + UI 树）
-     * 优先使用 MediaProjection 真实截图，不可用时降级为空白 Bitmap
+     * 捕获当前屏幕数据（屏幕录制帧 + UI 树）
+     * 优先使用 MediaProjection 录制帧，不可用时降级为空白 Bitmap
      */
     suspend fun captureScreenData(): ScreenData? {
         if (!isServiceReady) {
@@ -103,12 +103,12 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
                 currentPackage = null
             }
             
-            // 优先使用 MediaProjection 真实截图
-            val bitmap = if (screenCaptureManager.isScreenCaptureAvailable()) {
-                Timber.d("使用 MediaProjection 真实截图")
+            val hasRealScreenshot = screenCaptureManager.isScreenCaptureAvailable()
+            val bitmap = if (hasRealScreenshot) {
+                Timber.d("使用 MediaProjection 录制帧")
                 screenCaptureManager.captureScreen()
             } else {
-                Timber.w("MediaProjection 不可用，使用空白 Bitmap（请授权屏幕截图权限）")
+                Timber.w("MediaProjection 不可用，使用空白 Bitmap（请授权屏幕录制权限）")
                 screenCaptureManager.obtainBitmap(screenWidth, screenHeight)
             }
             
@@ -117,7 +117,8 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
                 uiTreeText = uiTreeText,
                 screenWidth = screenWidth,
                 screenHeight = screenHeight,
-                currentPackage = currentPackage
+                currentPackage = currentPackage,
+                hasRealScreenshot = hasRealScreenshot
             )
         } catch (e: Exception) {
             Timber.e(e, "捕获屏幕数据失败")
@@ -158,6 +159,13 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
      */
     fun performHome(): Boolean {
         return gestureExecutor.performHome()
+    }
+
+    /**
+     * 执行最近任务
+     */
+    fun performRecents(): Boolean {
+        return gestureExecutor.performRecents()
     }
 
     companion object {

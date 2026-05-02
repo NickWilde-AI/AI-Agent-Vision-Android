@@ -63,6 +63,7 @@ enum class ActionType {
     INPUT_TEXT,     // 输入文本
     BACK,           // 返回
     HOME,           // 回到主屏幕
+    RECENTS,        // 最近任务
     OPEN_APP,       // 打开应用
     DEVICE_CONTROL, // 设备控制（音量、亮度等）
     WAIT,           // 等待
@@ -183,6 +184,11 @@ data class ScreenData(
      * 当前应用包名
      */
     val currentPackage: String?,
+
+    /**
+     * 是否是真实屏幕截图；false 表示仅为空白占位图，不能用于视觉判断。
+     */
+    val hasRealScreenshot: Boolean = true,
 
     /**
      * 捕获时间戳
