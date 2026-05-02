@@ -216,11 +216,19 @@ timber: 5.0.1
 | 文档 | 说明 |
 |------|------|
 | [上手与测试](docs/GETTING_STARTED.md) | 快速启动 + 详细测试步骤（原 QUICKSTART + TESTING_GUIDE） |
-| [Phase 1 总结](PHASE1_SUMMARY.md) | 架构基座、状态机与意图路由（单独维护） |
 | [架构设计](docs/ARCHITECTURE.md) | 分层、状态机与组件职责 |
-| [Phase 演进历史](docs/PHASE_HISTORY.md) | Phase 2～5 总结合并归档 |
 | [云端 API 示例](docs/API_EXAMPLES.md) | DeepSeek 等调用示例 |
 | [AI 脚手架 Prompt](docs/AI_BOOTSTRAP_PROMPT.md) | 从零生成项目的 Prompt（非运行时 API 文档） |
+
+### Phase 总结（均在 `docs/`）
+
+| Phase | 文档 | 说明 |
+|-------|------|------|
+| Phase 1 | [PHASE1_SUMMARY.md](docs/PHASE1_SUMMARY.md) | 架构基座、状态机与意图路由 |
+| Phase 2 | [PHASE2_SUMMARY.md](docs/PHASE2_SUMMARY.md) | 无障碍视觉捕获与执行层 |
+| Phase 3 | [PHASE3_SUMMARY.md](docs/PHASE3_SUMMARY.md) | 真实操作执行与集成 |
+| Phase 4 | [PHASE4_SUMMARY.md](docs/PHASE4_SUMMARY.md) | 云端 API 集成 |
+| Phase 5 | [PHASE5_SUMMARY.md](docs/PHASE5_SUMMARY.md) | 云端优先全无障碍 AI Agent |
 
 ---
 

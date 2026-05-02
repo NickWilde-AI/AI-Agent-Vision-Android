@@ -193,13 +193,12 @@ const val DEEPSEEK_API_KEY = "sk-your-key"
 ### 学习项目架构
 
 阅读文档：
-1. `docs/ARCHITECTURE.md` — 整体架构
-2. [`PHASE1_SUMMARY.md`](../PHASE1_SUMMARY.md) — Phase 1：基座、状态机与意图路由
-3. `docs/PHASE_HISTORY.md` — Phase 2～5：无障碍、动作执行、云端与 Agent（合并归档）
+1. `ARCHITECTURE.md` — 整体架构（与本目录同级）
+2. `PHASE1_SUMMARY.md`～`PHASE5_SUMMARY.md` — 各阶段总结（与本目录同级）
 
 ### 扩展功能
 
-参考 `docs/PHASE_HISTORY.md` 的"下一步"部分：
+参考 **`PHASE4_SUMMARY.md`** 等文档中的「下一步」小节：
 - 实现输入文本功能
 - 实现打开应用功能
 - 实现设备控制功能
