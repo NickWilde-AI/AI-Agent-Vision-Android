@@ -265,10 +265,14 @@ class ActionExecutor private constructor() {
     /**
      * 执行打开应用
      *
-     * 策略优先级：
+     * 全无障碍优先策略：
      * 1. 检测是否已在目标应用内 → 直接返回成功
-     * 2. 使用 Intent 直接启动（最可靠）
-     * 3. 在桌面查找图标点击（Agent 感知行为，作为备选）
+     * 2. 回到桌面
+     * 3. 通过 Launcher UI 树查找目标应用图标并点击
+     * 4. 如果当前桌面页找不到，左右滑动翻页继续查找
+     *
+     * 说明：这里刻意不优先使用 Intent，目标是模拟真人操作路径，便于后续演进到
+     * “看屏幕 → 决策 → 点击”的豆包手机助手形态。
      */
     private suspend fun executeOpenApp(params: ActionParams): ExecutionResult {
         return when (params) {
@@ -277,50 +281,68 @@ class ActionExecutor private constructor() {
                     val service = EdgeAgentAccessibilityService.getInstance()
                         ?: return ExecutionResult.Failure("无障碍服务未启动")
 
-                    val context = service.applicationContext
-
-                    // Step 1: 检测是否已在目标应用内
-                    var currentPackage: String? = null
-                    for (i in 0..2) {
-                        currentPackage = service.rootInActiveWindow?.packageName?.toString()
-                        if (currentPackage != null) break
-                        kotlinx.coroutines.delay(200)
-                    }
-                    if (currentPackage == params.packageName) {
-                        Timber.d("已在目标应用内: ${params.packageName}")
-                        return ExecutionResult.Success("已在应用内: ${params.packageName}")
+                    val packageName = params.packageName
+                    if (packageName.isBlank()) {
+                        return ExecutionResult.Failure("打开应用失败：packageName 为空")
                     }
 
-                    // Step 2: Intent 直接启动（最可靠）
-                    val pm = context.packageManager
-                    val launchIntent = pm.getLaunchIntentForPackage(params.packageName)
-                    if (launchIntent != null) {
-                        launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                        context.startActivity(launchIntent)
-                        Timber.d("Intent 启动应用成功: ${params.packageName}")
-                        kotlinx.coroutines.delay(1500) // 等待应用启动
-                        return ExecutionResult.Success("Intent 启动: ${params.packageName}")
+                    val currentPackage = getCurrentPackage(service)
+                    if (currentPackage == packageName) {
+                        Timber.d("[OPEN_APP] 已在目标应用内: $packageName")
+                        return ExecutionResult.Success("已在应用内: $packageName")
                     }
 
-                    // Step 3: 降级 — 在桌面查找图标（保留 Agent 感知行为）
-                    val appName = getAppName(context, params.packageName)
-                    if (appName != null) {
-                        service.performHome()
-                        kotlinx.coroutines.delay(800)
-                        val iconFound = findAndClickAppIcon(service, appName, params.packageName)
+                    val appName = getAppName(service.applicationContext, packageName)
+                        ?: inferAppNameFromPackage(packageName)
+                    Timber.i("[OPEN_APP] 无障碍打开应用: appName=$appName, package=$packageName")
+
+                    val homeSuccess = service.performHome()
+                    if (!homeSuccess) {
+                        return ExecutionResult.Failure("打开应用失败：无法回到桌面")
+                    }
+                    kotlinx.coroutines.delay(900)
+
+                    repeat(MAX_LAUNCHER_SEARCH_PAGES) { pageIndex ->
+                        Timber.d("[OPEN_APP] 在桌面第 ${pageIndex + 1} 页查找图标: $appName")
+                        val iconFound = findAndClickAppIcon(service, appName, packageName)
                         if (iconFound) {
-                            kotlinx.coroutines.delay(1500)
-                            return ExecutionResult.Success("点击图标启动: $appName")
+                            kotlinx.coroutines.delay(1800)
+                            val afterPackage = getCurrentPackage(service)
+                            if (afterPackage == packageName) {
+                                Timber.i("[OPEN_APP] 已进入目标应用: $afterPackage")
+                                return ExecutionResult.Success("无障碍点击图标启动: $appName")
+                            }
+                            Timber.w("[OPEN_APP] 已点击图标，但当前包名尚未切到目标应用: $afterPackage")
+                            return ExecutionResult.Success("已点击图标，等待应用启动: $appName")
+                        }
+
+                        if (pageIndex < MAX_LAUNCHER_SEARCH_PAGES - 1) {
+                            val metrics = service.resources.displayMetrics
+                            val startX = (metrics.widthPixels * 0.82f).toInt()
+                            val endX = (metrics.widthPixels * 0.18f).toInt()
+                            val y = (metrics.heightPixels * 0.55f).toInt()
+                            Timber.d("[OPEN_APP] 当前页未找到，滑动到下一桌面页")
+                            service.performSwipe(startX, y, endX, y, 350)
+                            kotlinx.coroutines.delay(700)
                         }
                     }
 
-                    ExecutionResult.Failure("无法启动应用: ${params.packageName}")
+                    ExecutionResult.Failure("桌面未找到应用图标: $appName ($packageName)")
                 } catch (e: Exception) {
-                    Timber.e(e, "打开应用失败")
-                    ExecutionResult.Failure("打开应用失败: ${e.message}")
+                    Timber.e(e, "无障碍打开应用失败")
+                    ExecutionResult.Failure("无障碍打开应用失败: ${e.message}")
                 }
             }
             else -> ExecutionResult.Failure("参数类型错误")
+        }
+    }
+
+    private fun getCurrentPackage(service: EdgeAgentAccessibilityService): String? {
+        val rootNode = service.rootInActiveWindow ?: return null
+        return try {
+            rootNode.packageName?.toString()
+        } finally {
+            rootNode.recycle()
         }
     }
     
@@ -333,8 +355,22 @@ class ActionExecutor private constructor() {
             val appInfo = pm.getApplicationInfo(packageName, 0)
             pm.getApplicationLabel(appInfo).toString()
         } catch (e: Exception) {
-            Timber.e(e, "获取应用名称失败: $packageName")
+            Timber.w(e, "获取应用名称失败，使用包名推断: $packageName")
             null
+        }
+    }
+
+    private fun inferAppNameFromPackage(packageName: String): String {
+        return when (packageName) {
+            "com.tencent.mm" -> "微信"
+            "com.sankuai.meituan" -> "美团"
+            "com.eg.android.AlipayGphone" -> "支付宝"
+            "com.taobao.taobao" -> "淘宝"
+            "com.ss.android.ugc.aweme" -> "抖音"
+            "com.tencent.mobileqq" -> "QQ"
+            "com.android.contacts" -> "电话"
+            "com.android.settings" -> "设置"
+            else -> packageName.substringAfterLast('.')
         }
     }
     
@@ -533,6 +569,8 @@ class ActionExecutor private constructor() {
     }
 
     companion object {
+        private const val MAX_LAUNCHER_SEARCH_PAGES = 5
+
         @Volatile
         private var instance: ActionExecutor? = null
         

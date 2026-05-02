@@ -109,17 +109,17 @@ class MainViewModel : ViewModel() {
 
                 stateMachine.handleEvent(AgentEvent.UserTriggered(userInput))
 
-                // 判断是否使用多轮对话模式
                 val intent = intentRouter.parseIntent(userInput)
-                val useMultiRound = shouldUseMultiRound(userInput, intent)
+                val useCloudAgent = cloudFallbackManager.isEnabled()
 
-                if (useMultiRound && cloudFallbackManager.isEnabled()) {
-                    // 多轮对话模式（豆包 Agent 效果）
-                    Timber.d("使用多轮对话模式")
+                if (useCloudAgent) {
+                    // Phase 5：云端优先的全无障碍多轮 Agent。
+                    // 所有任务先走“截图/UI树 → 云端决策 → 无障碍执行 → 截图验证”的闭环。
+                    Timber.i("[AgentFlow] 使用云端多轮全无障碍模式: intent=${intent.type}")
                     executeMultiRoundTask(userInput)
                 } else {
-                    // 单轮模式（原有逻辑）
-                    Timber.d("使用单轮模式")
+                    // 云端关闭时保留旧单轮 Mock 流程，方便断网/开发调试。
+                    Timber.i("[AgentFlow] 云端未启用，使用本地单轮 Mock 模式")
                     executeSingleRoundTask(userInput, intent)
                 }
 
@@ -143,15 +143,12 @@ class MainViewModel : ViewModel() {
             is TaskExecutionResult.Success -> {
                 Timber.d("任务完成，共 ${result.rounds} 轮对话")
                 _executionResult.value = "✅ 任务完成！共 ${result.rounds} 轮对话"
-                stateMachine.handleEvent(AgentEvent.ExecutionComplete)
+                stateMachine.handleEvent(AgentEvent.Reset)
             }
             is TaskExecutionResult.Failure -> {
                 Timber.e("任务失败: ${result.reason}")
                 _executionResult.value = "❌ 任务失败: ${result.reason}"
-                stateMachine.handleEvent(AgentEvent.Error(
-                    Exception(result.reason),
-                    result.reason
-                ))
+                stateMachine.handleEvent(AgentEvent.Reset)
             }
         }
     }

@@ -105,24 +105,39 @@ class DeepSeekClient(
      */
     private fun buildSystemPrompt(): String {
         return """
-你是一个 Android 手机助手 AI，专门帮助用户操作手机。
+你是一个 Android 云端手机 Agent，目标是模拟真人通过无障碍服务操作手机，效果类似豆包 AI 手机助手。
 
-你的任务：
-1. 理解用户的意图
-2. 分析当前屏幕截图
-3. 决定执行什么操作
-4. 返回操作指令（JSON 格式）
+核心原则：
+1. 你只能返回一个 JSON 对象，不能输出解释性文本、Markdown 或代码块。
+2. 优先使用用户消息中的 "UI Tree with bounds" 和 "Clickable Elements"。这些节点已经包含 bounds=[left,top,right,bottom] 和 center=(x,y)。
+3. 点击时优先选择目标元素的 center 坐标，不要凭空猜坐标。
+4. 每轮只做一个最小可执行动作：看当前屏幕 → 决定下一步 → 等待下一轮截图验证。
+5. 如果当前屏幕还没加载完成，返回 WAIT。
+6. 如果用户目标已完成，返回 NO_ACTION。
+7. 除非当前 UI 无法继续操作，否则不要直接跳过中间步骤。
 
-支持的操作类型：
-- CLICK: 点击屏幕某个位置
-- SWIPE: 滑动屏幕
-- INPUT_TEXT: 输入文本
-- OPEN_APP: 打开应用
+支持的 action：
+- CLICK: 点击 UI 元素或坐标
+- LONG_CLICK: 长按
+- SWIPE: 滑动翻页或滚动
+- INPUT_TEXT: 向当前输入框或指定坐标输入文本
+- OPEN_APP: 打开应用。执行层会优先走无障碍路径：HOME → 查找图标 → 点击。
 - BACK: 返回
 - HOME: 回到主屏幕
-- NO_ACTION: 无需操作
+- WAIT: 等待页面加载
+- NO_ACTION: 任务完成
 
-返回格式（必须是有效的 JSON）：
+常见应用包名：
+- 微信: com.tencent.mm
+- 美团: com.sankuai.meituan
+- 支付宝: com.eg.android.AlipayGphone
+- 淘宝: com.taobao.taobao
+- 抖音: com.ss.android.ugc.aweme
+- QQ: com.tencent.mobileqq
+- 电话/联系人: com.android.contacts
+- 设置: com.android.settings
+
+返回 JSON 格式：
 {
   "action": "CLICK",
   "params": {
@@ -131,14 +146,27 @@ class DeepSeekClient(
     "description": "点击搜索框"
   },
   "confidence": 0.95,
-  "reasoning": "用户想要搜索，屏幕中心有搜索框"
+  "reasoning": "根据 UI 树 #3 搜索框 center=(540,1200)"
 }
 
-注意事项：
-1. 坐标必须在屏幕范围内
-2. confidence 范围是 0.0-1.0
-3. 如果不确定，confidence 设置为 0.6-0.7
-4. 必须返回有效的 JSON，不要有其他文字
+参数格式：
+1. CLICK: {"x": 540, "y": 1200, "description": "点击目标"}
+2. LONG_CLICK: {"x": 540, "y": 1200, "durationMs": 1000}
+3. SWIPE: {"startX": 540, "startY": 1800, "endX": 540, "endY": 600, "durationMs": 400}
+4. INPUT_TEXT: {"text": "你好", "targetX": 540, "targetY": 2100}
+5. OPEN_APP: {"packageName": "com.tencent.mm", "appName": "微信"}
+6. BACK/HOME/NO_ACTION: {"message": "原因"}
+7. WAIT: {"durationMs": 1000}
+
+决策规则：
+1. 如果目标元素出现在 Clickable Elements 中，直接使用对应 center 坐标 CLICK。
+2. 如果目标元素不可点击但父节点可点击，点击父节点 center。
+3. 如果要找联系人、商品、店铺、搜索框，优先点击搜索入口，然后 INPUT_TEXT。
+4. 如果当前在目标 App 内，不要再 OPEN_APP；继续执行 App 内步骤。
+5. 如果当前不在目标 App，第一步可以 OPEN_APP。执行层会用无障碍方式打开。
+6. 如果屏幕没有目标元素，可 SWIPE 或 BACK；不要重复同一个无效动作。
+7. 如果连续历史动作显示失败，要换一种路径，比如 HOME 后重试、点击搜索入口、或返回上一级。
+8. 所有坐标必须来自 UI 树 bounds/center 或在屏幕范围内。
         """.trimIndent()
     }
 
@@ -244,7 +272,7 @@ class DeepSeekClient(
             val actionJson = extractJsonFromContent(content)
             
             val action = ActionType.valueOf(actionJson.getString("action"))
-            val paramsJson = actionJson.getJSONObject("params")
+            val paramsJson = actionJson.optJSONObject("params") ?: JSONObject()
             val confidence = actionJson.optDouble("confidence", 0.8).toFloat()
             val reasoning = actionJson.optString("reasoning", "")
             
@@ -304,34 +332,60 @@ class DeepSeekClient(
         return when (action) {
             ActionType.CLICK -> {
                 ActionParams.Click(
-                    x = paramsJson.getInt("x"),
-                    y = paramsJson.getInt("y"),
+                    x = paramsJson.optInt("x", 540),
+                    y = paramsJson.optInt("y", 1200),
                     description = paramsJson.optString("description", "")
+                )
+            }
+
+            ActionType.LONG_CLICK -> {
+                ActionParams.LongClick(
+                    x = paramsJson.optInt("x", 540),
+                    y = paramsJson.optInt("y", 1200),
+                    durationMs = paramsJson.optLong("durationMs", 1000)
                 )
             }
             
             ActionType.SWIPE -> {
                 ActionParams.Swipe(
-                    startX = paramsJson.getInt("startX"),
-                    startY = paramsJson.getInt("startY"),
-                    endX = paramsJson.getInt("endX"),
-                    endY = paramsJson.getInt("endY"),
-                    durationMs = paramsJson.optLong("durationMs", 300)
+                    startX = paramsJson.optInt("startX", 540),
+                    startY = paramsJson.optInt("startY", 1800),
+                    endX = paramsJson.optInt("endX", 540),
+                    endY = paramsJson.optInt("endY", 600),
+                    durationMs = paramsJson.optLong("durationMs", 400)
                 )
             }
             
             ActionType.INPUT_TEXT -> {
                 ActionParams.InputText(
-                    text = paramsJson.getString("text"),
-                    targetX = paramsJson.optInt("targetX"),
-                    targetY = paramsJson.optInt("targetY")
+                    text = paramsJson.optString("text", ""),
+                    targetX = if (paramsJson.has("targetX")) paramsJson.optInt("targetX") else null,
+                    targetY = if (paramsJson.has("targetY")) paramsJson.optInt("targetY") else null
                 )
             }
             
             ActionType.OPEN_APP -> {
                 ActionParams.OpenApp(
-                    packageName = paramsJson.getString("packageName"),
-                    activityName = paramsJson.optString("activityName")
+                    packageName = paramsJson.optString("packageName", ""),
+                    activityName = paramsJson.optString("activityName", null)
+                )
+            }
+
+            ActionType.WAIT -> {
+                ActionParams.Wait(
+                    durationMs = paramsJson.optLong("durationMs", 1000)
+                )
+            }
+
+            ActionType.DEVICE_CONTROL -> {
+                val controlType = try {
+                    DeviceControlType.valueOf(paramsJson.optString("controlType", "VOLUME_UP").uppercase())
+                } catch (e: Exception) {
+                    DeviceControlType.VOLUME_UP
+                }
+                ActionParams.DeviceControl(
+                    controlType = controlType,
+                    value = paramsJson.optString("value", "")
                 )
             }
             
@@ -339,10 +393,6 @@ class DeepSeekClient(
                 ActionParams.NoAction(
                     message = paramsJson.optString("message", "")
                 )
-            }
-            
-            else -> {
-                ActionParams.NoAction(message = "不支持的操作类型")
             }
         }
     }

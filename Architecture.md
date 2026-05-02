@@ -106,16 +106,34 @@ interface ILocalModelEngine {
 
 ## 5. 数据流
 
+### 当前 Phase 5 云端优先全无障碍主流程
+
 ```
-用户触发 
+用户触发
+  → MainViewModel.testInference()
+  → 云端启用时统一进入 AgentExecutor 多轮模式
+  → AccessibilityService 捕获屏幕 (Bitmap + 坐标化 UI Tree)
+  → UITreeExtractor 输出 Clickable Elements + bounds/center
+  → CloudFallbackManager 调用阿里云/DeepSeek
+  → 云端 LLM 返回一个 JSON 动作
+  → ActionExecutor 通过无障碍执行 CLICK/SWIPE/INPUT_TEXT/OPEN_APP/BACK/HOME/WAIT
+  → 等待页面变化
+  → 再次截图和提取 UI 树，进入下一轮
+  → 云端返回 NO_ACTION 或达到最大轮数
+```
+
+### 后续端侧优先目标流程
+
+```
+用户触发
   → AccessibilityService 捕获屏幕 (Bitmap + UI Tree)
   → AgentOrchestrator 接收感知数据
   → IntentRouter 判断意图
   → 本地 RAG 检索相似历史
-  → ILocalModelEngine 推理 (Mock/Qwen VLM)
+  → ILocalModelEngine 推理 (Qwen VLM / 本地策略引擎)
   → 判断置信度
-      - 高置信度 → 直接执行
-      - 低置信度 → CloudFallbackClient 调用云端 → 执行
+      - 高置信度 → 直接无障碍执行
+      - 低置信度 → CloudFallbackClient 调用云端 → 无障碍执行
   → GestureExecutor 执行操作
   → 状态机回到 IDLE
 ```
@@ -237,7 +255,23 @@ interface ILocalModelEngine {
 
 ---
 
-### Phase 5: 本地 RAG 向量检索 ⏳ (待开发)
+### Phase 5: 云端优先全无障碍 AI Agent ✅
+**核心功能**：
+- 云端启用时所有任务统一进入多轮 Agent 主流程
+- `UITreeExtractor` 输出 `bounds`、`center` 与可点击元素摘要
+- `OPEN_APP` 改为无障碍优先：HOME → 桌面找图标 → 点击 → 翻页重试
+- 阿里云/DeepSeek Prompt 升级为坐标化 UI 树优先
+- 结构化日志：轮次、包名、UI 树状态、LLM 动作、执行结果
+
+**当前商业化闭环**：
+- 看屏幕：截图 + 坐标化 UI 树
+- 思考：云端 VLM/LLM 输出 JSON 动作
+- 执行：AccessibilityService 执行点击、输入、滑动、返回、Home
+- 验证：等待后再次截图进入下一轮
+
+---
+
+### Phase 6: 本地 RAG 向量检索 ⏳ (待开发)
 **核心功能**：
 - 本地向量数据库（FAISS / SQLite-Vector）
 - 常用指令缓存（"调音量"、"打开微信"）
@@ -256,7 +290,7 @@ interface ILocalModelEngine {
 
 ---
 
-### Phase 6: 本地多模态模型集成 ⏳ (可选)
+### Phase 7: 本地多模态模型集成 ⏳ (可选)
 **核心功能**：
 - 集成 Qwen 3.5 (0.8B/2B) VLM
 - MediaPipe / MLC LLM 推理框架
@@ -275,7 +309,7 @@ interface ILocalModelEngine {
 
 ---
 
-### Phase 7: 语音交互 ⏳ (可选)
+### Phase 8: 语音交互 ⏳ (可选)
 **核心功能**：
 - 语音输入（ASR）
 - 语音输出（TTS）
@@ -289,7 +323,7 @@ interface ILocalModelEngine {
 
 ---
 
-### Phase 8: 高级功能 ⏳ (可选)
+### Phase 9: 高级功能 ⏳ (可选)
 **核心功能**：
 - 多步骤任务规划
 - 上下文记忆
@@ -305,29 +339,31 @@ interface ILocalModelEngine {
 |-------|------|--------|
 | Phase 1: 架构与基座 | ✅ 完成 | 100% |
 | Phase 2: 无障碍服务 | ✅ 完成 | 100% |
-| Phase 3: 真实操作执行 | 🔄 进行中 | 0% |
-| Phase 4: 云端 API | ⏳ 待开发 | 0% |
-| Phase 5: 本地 RAG | ⏳ 待开发 | 0% |
-| Phase 6: 本地模型 | ⏳ 可选 | 0% |
-| Phase 7: 语音交互 | ⏳ 可选 | 0% |
-| Phase 8: 高级功能 | ⏳ 可选 | 0% |
+| Phase 3: 真实操作执行 | ✅ 完成 | 100% |
+| Phase 4: 云端 API | ✅ 完成 | 100% |
+| Phase 5: 云端优先全无障碍 Agent | ✅ 完成 | 100% |
+| Phase 6: 本地 RAG | ⏳ 待开发 | 0% |
+| Phase 7: 本地模型 | ⏳ 可选 | 0% |
+| Phase 8: 语音交互 | ⏳ 可选 | 0% |
+| Phase 9: 高级功能 | ⏳ 可选 | 0% |
 
 ---
 
 ## 最小可用产品 (MVP)
 
-要实现类似豆包的基础功能，需要完成：
+要实现类似豆包的基础功能，当前已完成：
 - ✅ Phase 1: 架构设计
 - ✅ Phase 2: 无障碍服务
-- 🔄 Phase 3: 真实操作执行
-- 🎯 Phase 4: 云端 API 集成
+- ✅ Phase 3: 真实操作执行
+- ✅ Phase 4: 云端 API 集成
+- ✅ Phase 5: 云端优先全无障碍 Agent
 
-**预计时间**：Phase 3 (1-2 天) + Phase 4 (1 天) = 2-3 天
+**当前 MVP 功能**：
+- 用户说"打开微信" → 回到桌面、查找图标、通过无障碍点击启动
+- 用户说"向上滑动" → 通过 `dispatchGesture` 真实滑动屏幕
+- 用户说"点击搜索框" → 云端根据坐标化 UI 树返回坐标并点击
+- 复杂任务 → 多轮截图/UI 树 + 云端决策 + 无障碍执行 + 截图验证
 
-**MVP 功能**：
-- 用户说"打开 Chrome" → 真的打开 Chrome
-- 用户说"向上滑动" → 真的滑动屏幕
-- 用户说"点击搜索框" → 真的点击搜索框
-- 复杂任务自动调用云端 API
+**下一步重点**：针对微信发消息、美团点外卖等具体 App 流程做专项成功率优化。
 
 ---
