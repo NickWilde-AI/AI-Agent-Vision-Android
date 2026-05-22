@@ -1,370 +1,250 @@
-# EdgeAgentAndroid 架构设计文档
+# VisionAgent Android 架构设计
 
-## 1. 架构概览
+本文档描述当前真实架构、模块职责和演进方向。若代码和本文档不一致，以代码为准并及时更新文档。
 
-本项目采用 **Clean Architecture** 分层架构，目标是构建可长期演进的真实 Android Agent，而不是一次性演示 Demo。
+## 架构目标
 
-### 核心设计原则
+VisionAgent Android 的核心目标是构建安全可控的 Android Agent 主链路：
 
-1. **真实可执行**：每个决策必须能映射为可验证的 Android 无障碍动作
-2. **隐私合规**：设备控制、本地文件、支付等敏感路径默认本地处理或请求用户确认
-3. **视觉优先**：当前默认使用千问视觉模型理解屏幕，后续逐步补齐本地策略和本地模型
-4. **松耦合设计**：UI、编排、感知、推理、执行分层解耦，便于替换模型和策略
-
-## 2. 分层架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Presentation Layer                        │
-│  (UI/ViewModel - XML + StateFlow)                           │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                      Domain Layer                            │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │         AgentOrchestrator (核心编排器)                │   │
-│  │  ┌────────────────────────────────────────────────┐  │   │
-│  │  │        AgentStateMachine (状态机)              │  │   │
-│  │  └────────────────────────────────────────────────┘  │   │
-│  │  ┌────────────────────────────────────────────────┐  │   │
-│  │  │        IntentRouter (端云路由决策)             │  │   │
-│  │  └────────────────────────────────────────────────┘  │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                       Data Layer                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │  Perception  │  │  Inference   │  │  Execution   │      │
-│  │   (感知)     │  │   (推理)     │  │   (执行)     │      │
-│  │              │  │              │  │              │      │
-│  │ Screen       │  │ Local VLM    │  │ Gesture      │      │
-│  │ Capture      │  │ Engine       │  │ Executor     │      │
-│  │              │  │              │  │              │      │
-│  │ UI Tree      │  │ Cloud        │  │ Accessibility│      │
-│  │ Extractor    │  │ Fallback     │  │ Actions      │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Local RAG Engine                        │   │
-│  │         (FAISS/SQLite Vector Store)                  │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                   Service Layer                              │
-│  - EdgeAgentAccessibilityService (无障碍服务)                │
-│  - OverlayService (悬浮窗服务)                               │
-└─────────────────────────────────────────────────────────────┘
+```text
+观察屏幕 -> 规划任务 -> 检索本地策略 -> 单步决策 -> 安全检查 -> 执行动作 -> 再次观察
 ```
 
-## 3. 状态机设计
+设计重点：
 
-### 状态定义
-- **IDLE**: 空闲，等待用户触发
-- **PERCEIVING**: 正在捕获屏幕截图和 UI 树
-- **REASONING_LOCAL**: 本地 VLM 模型推理中
-- **REASONING_CLOUD**: 云端大模型推理中（兜底）
-- **EXECUTING**: 执行操作（点击、滑动、输入）
-- **ERROR**: 错误状态
-- **COMPLETED**: 任务完成
+- 不让模型自由执行完整任务。
+- 每轮只执行一个最小动作。
+- 复杂 App 使用策略约束。
+- 高风险动作必须被拦截或确认。
+- 所有失败都应该可记录、可回放、可沉淀为策略。
 
-### 状态转换流程
-```
-IDLE → PERCEIVING → REASONING_LOCAL → EXECUTING → COMPLETED → IDLE
-                         ↓ (低置信度)
-                    REASONING_CLOUD → EXECUTING → COMPLETED → IDLE
-```
+## 分层结构
 
-## 4. 核心组件职责
+```text
+Presentation Layer
+  MainActivity
+  MainViewModel
 
-### AgentOrchestrator (编排器)
-- 协调整个 Agent 的工作流
-- 管理状态机转换
-- 调度感知、推理、执行三大模块
-- 对 UI 层隐藏云端/本地/多轮/单轮的具体执行策略
+Domain Layer
+  AgentOrchestrator
+  AgentExecutor
+  AgentStateMachine
+  IntentRouter
+  PlannerAgent
+  ReflectionAgent
+  ActionGuard
 
-### IntentRouter (意图路由)
-- 根据用户输入和上下文判断意图类型
-- 决策是否需要调用云端（基于置信度阈值）
-- 管理本地 RAG 检索优先级
+Data Layer
+  LocalRagEngine
+  CloudFallbackManager
+  AliyunClient / DeepSeekClient
+  UITreeExtractor
+  ScreenCaptureManager
+  ActionExecutor
+  GestureExecutor
 
-### ILocalModelEngine (本地模型引擎接口)
-```kotlin
-interface ILocalModelEngine {
-    suspend fun inference(
-        image: Bitmap,
-        prompt: String,
-        uiTree: String? = null
-    ): AgentResponse
-}
+Service Layer
+  EdgeAgentAccessibilityService
+  ScreenCaptureService
 ```
 
-### GestureExecutor (手势执行器)
-- 封装 AccessibilityService 的 dispatchGesture
-- 提供点击、滑动、长按、输入文本等原子操作
-- 内存安全 + 主线程保护
+## 主流程
 
-## 5. 数据流
-
-### 当前 Phase 5 云端优先全无障碍主流程
-
-```
-用户触发
-  → MainViewModel.executeCommand()
-  → 云端启用时统一进入 AgentExecutor 多轮模式
-  → AccessibilityService 捕获屏幕 (Bitmap + 坐标化 UI Tree)
-  → UITreeExtractor 输出 Clickable Elements + bounds/center
-  → CloudFallbackManager 调用阿里云/DeepSeek
-  → 云端 LLM 返回一个 JSON 动作
-  → ActionExecutor 通过无障碍执行 CLICK/SWIPE/INPUT_TEXT/OPEN_APP/BACK/HOME/WAIT
-  → 等待页面变化
-  → 再次截图和提取 UI 树，进入下一轮
-  → 云端返回 NO_ACTION 或达到最大轮数
+```text
+用户输入
+  -> MainViewModel.executeCommand()
+  -> AgentOrchestrator.executeCommand()
+  -> AgentStateMachine: IDLE -> PERCEIVING
+  -> AgentExecutor.executeTask()
+  -> PlannerAgent.plan()
+  -> LocalRagEngine.retrieve()
+  -> captureScreen()
+  -> ReflectionAgent.reflect()
+  -> buildPrompt(plan + rag + reflection + uiTree)
+  -> CloudFallbackManager.inference()
+  -> ActionGuard.guard()
+  -> ActionExecutor.execute()
+  -> captureScreen()
+  -> 下一轮
 ```
 
-### 后续端侧优先目标流程
+## 核心模块
 
+### AgentOrchestrator
+
+职责：
+
+- 对 UI 层提供统一入口。
+- 初始化本地或云端执行路径。
+- 管理状态机的顶层流转。
+- 隐藏多轮 Agent 的内部复杂度。
+
+### AgentExecutor
+
+职责：
+
+- 实现多轮观察和执行循环。
+- 每轮构建包含 RAG、规划、反思和 UI 树的 prompt。
+- 接收模型单步动作。
+- 调用 ActionGuard。
+- 调用 ActionExecutor。
+- 保存本轮对话历史。
+
+### PlannerAgent
+
+职责：
+
+- 识别任务类型。
+- 识别目标包名。
+- 判断安全模式。
+- 检索本地 RAG 策略。
+- 生成 `AgentPlan`。
+
+当前任务类型：
+
+- `OPEN_APP`
+- `DEVICE_CONTROL`
+- `WECHAT_DRAFT`
+- `BROWSER_SEARCH`
+- `APP_NAVIGATION`
+- `GENERAL`
+
+当前安全模式：
+
+- `AUTO`
+- `REQUIRE_CONFIRMATION`
+- `DRAFT_ONLY`
+
+### LocalRagEngine
+
+职责：
+
+- 提供本地策略检索。
+- 当前为无依赖关键词检索。
+- 后续可替换为 Room + Embedding + 向量检索。
+
+当前内置策略：
+
+- 高风险动作必须确认。
+- 微信只填草稿。
+- 微信联系人搜索路径。
+- 系统设置策略。
+- 浏览器搜索策略。
+
+### ReflectionAgent
+
+职责：
+
+- 检测连续失败。
+- 检测重复动作。
+- 检测连续等待。
+- 检测截图和 UI 树同时不可用。
+- 给模型注入下一步避错提示。
+- 必要时中止任务。
+
+### ActionGuard
+
+职责：
+
+- 执行动作前进行安全拦截。
+- 拦截发送、支付、下单、删除、转账、提交等高风险动作。
+- 微信草稿模式下禁止点击发送。
+- 将被拦截动作转为 `NO_ACTION`。
+
+### UITreeExtractor
+
+职责：
+
+- 从 `AccessibilityNodeInfo` 提取 UI 树。
+- 生成模型可读的文本摘要。
+- 生成结构化 `UiNode`。
+- 输出可点击元素列表和坐标。
+
+### ScreenCaptureService
+
+职责：
+
+- 管理 MediaProjection。
+- 使用 ImageReader 持续监听屏幕帧。
+- 缓存最新截图。
+- 为 Agent 提供稳定截图来源。
+
+## 状态机
+
+当前状态：
+
+- `IDLE`
+- `PERCEIVING`
+- `REASONING_LOCAL`
+- `REASONING_CLOUD`
+- `EXECUTING`
+- `ERROR`
+- `COMPLETED`
+
+状态机用于 UI 状态和主链路约束。多 Agent 内部状态目前由 `AgentExecutor` 管理，后续可进一步拆为任务级状态机。
+
+## 安全策略
+
+默认禁止自动执行：
+
+- 发送消息
+- 支付
+- 下单
+- 删除
+- 转账
+- 提交订单
+- 不可逆确认
+
+微信任务默认 `DRAFT_ONLY`：
+
+```text
+允许：打开微信、搜索联系人、进入聊天页、输入草稿
+禁止：点击发送
 ```
-用户触发
-  → AccessibilityService 捕获屏幕 (Bitmap + UI Tree)
-  → AgentOrchestrator 接收感知数据
-  → IntentRouter 判断意图
-  → 本地 RAG 检索相似历史
-  → ILocalModelEngine 推理 (Qwen VLM / 本地策略引擎)
-  → 判断置信度
-      - 高置信度 → 直接无障碍执行
-      - 低置信度 → CloudFallbackClient 调用云端 → 无障碍执行
-  → GestureExecutor 执行操作
-  → 状态机回到 IDLE
-```
 
-## 6. 技术栈
+## 数据模型
 
-- **语言**: Kotlin (100%)
-- **异步**: Coroutines + Flow
-- **依赖注入**: Hilt (Dagger)
-- **本地推理**: MediaPipe / MLC LLM (Qwen 3.5 0.8B/2B)
-- **向量存储**: FAISS-Android / SQLite with Vector Extension
-- **云端兜底**: DeepSeek API / 阿里云百炼 API
-- **UI**: Jetpack Compose (现代化 UI)
-- **无障碍**: AccessibilityService + MediaProjection
+关键模型：
 
-## 7. 内存与性能优化策略
+- `AgentResponse`
+- `ActionType`
+- `ActionParams`
+- `ScreenData`
+- `AgentPlan`
+- `AgentReflection`
+- `RagDocument`
+- `RagHit`
+- `UiNode`
+- `UiTreeSnapshot`
 
-1. **Bitmap 复用池**: 避免频繁 GC
-2. **协程作用域管理**: 防止内存泄漏
-3. **模型推理异步化**: 不阻塞主线程
-4. **UI 树裁剪**: 只提取关键节点信息
-5. **懒加载模型**: 首次使用时才加载到内存
+## 当前限制
 
-## 8. 安全与隐私
+1. RAG 仍是关键词检索，不是向量检索。
+2. 没有持久化失败轨迹。
+3. 没有产品级确认 UI。
+4. App 专项策略还未状态机化。
+5. 本地 VLM 未接入。
+6. 真机兼容性需要更多设备验证。
 
-- 所有本地操作数据不上传
-- 云端调用前脱敏处理（移除 PII）
-- 用户可配置"纯本地模式"（完全禁用云端）
-- 符合 GDPR / 中国个人信息保护法
+## 演进方向
 
----
+短期：
 
-**下一步**: Phase 2 - 实现 AccessibilityService 感知与执行层
+- `AgentTrace` 失败日志。
+- `WechatStrategy` 草稿状态机。
+- 高风险确认 UI。
+- Browser 和 Settings 专项策略。
 
----
+中期：
 
-## 各 Phase 核心功能
+- Room 持久化 RAG。
+- 失败样本检索。
+- App 策略库。
+- 任务评测集。
 
-### Phase 1: 系统架构与基座搭建 ✅
-**核心功能**：
-- Clean Architecture 三层架构设计
-- 状态机（7 个状态 + 状态转换规则）
-- 意图路由（6 种意图类型 + 云端兜底决策）
-- Mock 模型引擎（模拟推理流程）
-- 数据模型定义（AgentResponse, ActionType, ActionParams）
+长期：
 
-**技术选型**：
-- 单例模式（替代 Hilt）
-- 传统 XML 布局（替代 Compose）
-- Kotlin Coroutines + StateFlow
-- Java 17 + Kotlin 2.0.21
-
-**成果**：
-- 完整的架构设计
-- 可运行的 Mock 推理流程
-- 状态机正常工作
-- 意图识别和路由决策
-
----
-
-### Phase 2: 无障碍视觉捕获与执行层 ✅
-**核心功能**：
-- EdgeAgentAccessibilityService（无障碍服务核心）
-- GestureExecutor（手势执行：点击、滑动、返回等）
-- ScreenCaptureManager（Bitmap 对象池，内存优化）
-- UITreeExtractor（UI 树提取和过滤）
-
-**技术亮点**：
-- Bitmap 复用池（避免频繁 GC）
-- 协程封装手势操作（主线程保护）
-- UI 树智能过滤（减少 70% 数据量）
-- 完整的无障碍权限配置
-
-**成果**：
-- 无障碍服务框架完成
-- 手势执行能力就绪
-- 内存优化机制
-- 等待与 Domain 层集成
-
----
-
-### Phase 3: 真实操作执行与集成 🔄 (进行中)
-**核心功能**：
-- 将 AgentResponse 转换为真实的无障碍操作
-- 集成 GestureExecutor 到推理流程
-- 实现真实的点击、滑动、输入文本
-- 错误处理和重试机制
-
-**实现步骤**：
-1. 创建 ActionExecutor（动作执行器）
-2. 连接 MainViewModel 和 AccessibilityService
-3. 实现各种 ActionType 的真实执行
-4. 添加执行结果反馈
-
-**预期效果**：
-- 点击按钮后，真的能点击屏幕
-- 滑动指令能真的滑动
-- 打开应用能真的启动应用
-
----
-
-### Phase 4: 云端 API 集成 ⏳ (待开发)
-**核心功能**：
-- CloudFallbackClient（云端 API 客户端）
-- 集成 DeepSeek / 豆包 / 阿里云大模型 API
-- 真实的云端兜底逻辑
-- API 调用优化（缓存、重试、超时）
-
-**技术实现**：
-- Retrofit + OkHttp（网络请求）
-- Kotlin Serialization（JSON 解析）
-- 协程异步调用
-- 错误处理和降级策略
-
-**API 选择**：
-- DeepSeek API（100k+ Context）
-- 阿里云百炼 API
-- 豆包 API（可选）
-
----
-
-### Phase 5: 云端优先全无障碍 AI Agent ✅
-**核心功能**：
-- 云端启用时所有任务统一进入多轮 Agent 主流程
-- `UITreeExtractor` 输出 `bounds`、`center` 与可点击元素摘要
-- `OPEN_APP` 改为无障碍优先：HOME → 桌面找图标 → 点击 → 翻页重试
-- 阿里云/DeepSeek Prompt 升级为坐标化 UI 树优先
-- 结构化日志：轮次、包名、UI 树状态、LLM 动作、执行结果
-
-**当前商业化闭环**：
-- 看屏幕：截图 + 坐标化 UI 树
-- 思考：云端 VLM/LLM 输出 JSON 动作
-- 执行：AccessibilityService 执行点击、输入、滑动、返回、Home
-- 验证：等待后再次截图进入下一轮
-
----
-
-### Phase 6: 本地 RAG 向量检索 ⏳ (待开发)
-**核心功能**：
-- 本地向量数据库（FAISS / SQLite-Vector）
-- 常用指令缓存（"调音量"、"打开微信"）
-- 用户习惯学习
-- 向量检索优先级
-
-**技术实现**：
-- FAISS-Android（向量检索）
-- Room Database（持久化）
-- Embedding 模型（文本向量化）
-
-**优化策略**：
-- 高频指令本地缓存
-- 零网络请求
-- 毫秒级响应
-
----
-
-### Phase 7: 本地多模态模型集成 ⏳ (可选)
-**核心功能**：
-- 集成 Qwen 3.5 (0.8B/2B) VLM
-- MediaPipe / MLC LLM 推理框架
-- 模型量化和优化
-- 端侧推理加速
-
-**技术挑战**：
-- 模型大小（200-500MB）
-- 推理速度（1-3 秒）
-- 内存占用（200-500MB）
-- 兼容性问题
-
-**备选方案**：
-- 完全使用云端 API（更简单）
-- 混合模式（简单任务本地，复杂任务云端）
-
----
-
-### Phase 8: 语音交互 ⏳ (可选)
-**核心功能**：
-- 语音输入（ASR）
-- 语音输出（TTS）
-- 唤醒词检测
-- 连续对话
-
-**技术实现**：
-- Android SpeechRecognizer
-- TextToSpeech API
-- 或集成第三方 SDK
-
----
-
-### Phase 9: 高级功能 ⏳ (可选)
-**核心功能**：
-- 多步骤任务规划
-- 上下文记忆
-- 用户偏好学习
-- 悬浮窗快捷入口
-- 通知栏快捷操作
-
----
-
-## 当前进度
-
-| Phase | 状态 | 完成度 |
-|-------|------|--------|
-| Phase 1: 架构与基座 | ✅ 完成 | 100% |
-| Phase 2: 无障碍服务 | ✅ 完成 | 100% |
-| Phase 3: 真实操作执行 | ✅ 完成 | 100% |
-| Phase 4: 云端 API | ✅ 完成 | 100% |
-| Phase 5: 云端优先全无障碍 Agent | ✅ 完成 | 100% |
-| Phase 6: 本地 RAG | ⏳ 待开发 | 0% |
-| Phase 7: 本地模型 | ⏳ 可选 | 0% |
-| Phase 8: 语音交互 | ⏳ 可选 | 0% |
-| Phase 9: 高级功能 | ⏳ 可选 | 0% |
-
----
-
-## 最小可用产品 (MVP)
-
-要实现类似豆包的基础功能，当前已完成：
-- ✅ Phase 1: 架构设计
-- ✅ Phase 2: 无障碍服务
-- ✅ Phase 3: 真实操作执行
-- ✅ Phase 4: 云端 API 集成
-- ✅ Phase 5: 云端优先全无障碍 Agent
-
-**当前 MVP 功能**：
-- 用户说"打开微信" → 回到桌面、查找图标、通过无障碍点击启动
-- 用户说"向上滑动" → 通过 `dispatchGesture` 真实滑动屏幕
-- 用户说"点击搜索框" → 云端根据坐标化 UI 树返回坐标并点击
-- 复杂任务 → 多轮截图/UI 树 + 云端决策 + 无障碍执行 + 截图验证
-
-**下一步重点**：针对微信发消息、美团点外卖等具体 App 流程做专项成功率优化。
-
----
+- 本地视觉模型。
+- 本地 OCR。
+- 用户偏好记忆。
+- 跨 App 任务编排。

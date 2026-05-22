@@ -4,6 +4,12 @@ import android.graphics.Bitmap
 import com.tencent.edgeagent.data.cloud.CloudFallbackManager
 import com.tencent.edgeagent.data.execution.ActionExecutor
 import com.tencent.edgeagent.data.execution.ExecutionResult
+import com.tencent.edgeagent.domain.agent.multi.AgentPlan
+import com.tencent.edgeagent.domain.agent.multi.AgentReflection
+import com.tencent.edgeagent.domain.agent.multi.PlannerAgent
+import com.tencent.edgeagent.domain.agent.multi.ReflectionAgent
+import com.tencent.edgeagent.domain.agent.safety.ActionGuard
+import com.tencent.edgeagent.domain.agent.safety.GuardResult
 import com.tencent.edgeagent.domain.model.*
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
 import kotlinx.coroutines.delay
@@ -33,6 +39,9 @@ class AgentExecutor private constructor() {
 
     private val cloudManager = CloudFallbackManager.getInstance()
     private val actionExecutor = ActionExecutor.getInstance()
+    private val plannerAgent = PlannerAgent.getInstance()
+    private val reflectionAgent = ReflectionAgent.getInstance()
+    private val actionGuard = ActionGuard.getInstance()
     
     companion object {
         private const val MAX_ROUNDS = 16 // 最大对话轮数
@@ -73,13 +82,22 @@ class AgentExecutor private constructor() {
         if (currentScreenData == null) {
             return TaskExecutionResult.Failure("无法捕获屏幕数据")
         }
+
+        val plan = plannerAgent.plan(userGoal, currentScreenData.currentPackage)
+        onProgress("[0/$MAX_ROUNDS] 规划完成：${plan.taskType} / ${plan.safetyMode}")
         
-        while (currentRound < MAX_ROUNDS && !isTaskComplete) {
+        val maxRounds = minOf(MAX_ROUNDS, plan.maxRounds)
+        while (currentRound < maxRounds && !isTaskComplete) {
             currentRound++
             Timber.i("[AgentTask] round=$currentRound package=${currentScreenData?.currentPackage} uiTree=${hasUsableUiTree(currentScreenData?.uiTreeText)} screenshot=${currentScreenData?.hasRealScreenshot}")
-            onProgress("[$currentRound/$MAX_ROUNDS] 分析当前屏幕：${currentScreenData?.currentPackage ?: "未知包名"}")
+            onProgress("[$currentRound/$maxRounds] 分析当前屏幕：${currentScreenData?.currentPackage ?: "未知包名"}")
             
             try {
+                val reflection = reflectionAgent.reflect(conversationHistory, currentScreenData!!)
+                if (reflection.shouldAbort) {
+                    return TaskExecutionResult.Failure(reflection.abortReason ?: "反思 Agent 停止任务")
+                }
+
                 val localResponse = buildDeterministicResponseIfNeeded(
                     userGoal,
                     currentScreenData!!,
@@ -88,8 +106,8 @@ class AgentExecutor private constructor() {
                 )
 
                 // 构建提示词（包含历史对话）
-                val response = localResponse ?: run {
-                    val prompt = buildPrompt(userGoal, conversationHistory, currentRound, currentScreenData!!)
+                val rawResponse = localResponse ?: run {
+                    val prompt = buildPrompt(userGoal, plan, reflection, conversationHistory, currentRound, currentScreenData!!)
 
                     // 调用 LLM 分析当前屏幕
                     cloudManager.inference(
@@ -98,23 +116,30 @@ class AgentExecutor private constructor() {
                         uiTree = currentScreenData.uiTreeText
                     )
                 }
+                val response = when (val guard = actionGuard.guard(plan, rawResponse, currentScreenData.currentPackage, currentScreenData.uiTreeText)) {
+                    is GuardResult.Allowed -> guard.response
+                    is GuardResult.Blocked -> {
+                        onProgress("[$currentRound/$maxRounds] 安全拦截：${guard.reason}")
+                        guard.safeResponse
+                    }
+                }
                 
                 Timber.i("[AgentTask] round=$currentRound llm action=${response.action} confidence=${response.confidence} params=${response.actionParams}")
                 onDecision(response)
-                onProgress("[$currentRound/$MAX_ROUNDS] 决策：${describeAction(response)}")
+                onProgress("[$currentRound/$maxRounds] 决策：${describeAction(response)}")
                 
                 // 检查是否完成
                 if (response.action == ActionType.NO_ACTION) {
                     Timber.d("任务完成")
                     isTaskComplete = true
-                    onProgress("[$currentRound/$MAX_ROUNDS] 任务完成")
+                    onProgress("[$currentRound/$maxRounds] 任务完成")
                     break
                 }
                 
                 // 检测重复操作（防止死循环）：这里必须使用“加入当前响应之前”的历史
                 if (isRepeatingAction(conversationHistory, response)) {
                     Timber.w("检测到重复操作，强制等待...")
-                    onProgress("[$currentRound/$MAX_ROUNDS] 检测到重复动作，等待界面变化")
+                    onProgress("[$currentRound/$maxRounds] 检测到重复动作，等待界面变化")
                     delay(OPEN_APP_DELAY)
                     
                     // 截图验证
@@ -136,7 +161,7 @@ class AgentExecutor private constructor() {
                 )
                 
                 // 执行操作
-                onProgress("[$currentRound/$MAX_ROUNDS] 执行：${describeAction(response)}")
+                onProgress("[$currentRound/$maxRounds] 执行：${describeAction(response)}")
                 val executionResult = actionExecutor.execute(response)
                 
                 // 更新对话历史
@@ -145,11 +170,11 @@ class AgentExecutor private constructor() {
                 when (executionResult) {
                     is ExecutionResult.Success -> {
                         Timber.d("执行成功: ${executionResult.message}")
-                        onProgress("[$currentRound/$MAX_ROUNDS] 执行成功：${executionResult.message}")
+                        onProgress("[$currentRound/$maxRounds] 执行成功：${executionResult.message}")
                     }
                     is ExecutionResult.Failure -> {
                         Timber.e("执行失败: ${executionResult.message}")
-                        onProgress("[$currentRound/$MAX_ROUNDS] 执行失败：${executionResult.message}")
+                        onProgress("[$currentRound/$maxRounds] 执行失败：${executionResult.message}")
                         // 继续下一轮，让 LLM 处理失败情况
                     }
                 }
@@ -163,7 +188,7 @@ class AgentExecutor private constructor() {
                 delay(waitTime)
                 
                 // 截图验证
-                onProgress("[$currentRound/$MAX_ROUNDS] 屏幕捕获验证并提取 UI 树")
+                onProgress("[$currentRound/$maxRounds] 屏幕捕获验证并提取 UI 树")
                 currentScreenData = captureScreen()
                 if (currentScreenData == null) {
                     return TaskExecutionResult.Failure("无法捕获屏幕数据")
@@ -171,12 +196,12 @@ class AgentExecutor private constructor() {
                 
             } catch (e: Exception) {
                 Timber.e(e, "第 $currentRound 轮执行失败")
-                onProgress("[$currentRound/$MAX_ROUNDS] 异常：${e.message}")
+                onProgress("[$currentRound/$maxRounds] 异常：${e.message}")
                 return TaskExecutionResult.Failure("执行失败: ${e.message}")
             }
         }
         
-        if (currentRound >= MAX_ROUNDS && !isTaskComplete) {
+        if (currentRound >= maxRounds && !isTaskComplete) {
             return TaskExecutionResult.Failure("超过最大轮数限制")
         }
         
@@ -324,6 +349,8 @@ class AgentExecutor private constructor() {
      */
     private fun buildPrompt(
         userGoal: String,
+        plan: AgentPlan,
+        reflection: AgentReflection,
         history: List<ConversationTurn>,
         currentRound: Int,
         currentScreenData: ScreenData
@@ -336,6 +363,10 @@ class AgentExecutor private constructor() {
         prompt.append("当前应用包名: ${currentScreenData.currentPackage ?: "未知"}\n")
         prompt.append("当前 UI 树是否可用: ${hasUsableUiTree(currentScreenData.uiTreeText)}\n")
         prompt.append("当前真实截图是否可用: ${currentScreenData.hasRealScreenshot}\n")
+        prompt.append("\n")
+        prompt.append(plan.toPromptText())
+        prompt.append(reflection.toPromptText())
+        prompt.append("\n")
         if (!currentScreenData.hasRealScreenshot) {
             prompt.append("重要：当前截图只是空白占位图，不能据此判断页面视觉内容、场景、室内/室外或图片内容；只能依据 UI 树、包名和历史操作决策。\n")
         }
@@ -373,8 +404,9 @@ class AgentExecutor private constructor() {
         prompt.append("5. 需要发送/提交内容时，先点击输入框，再 INPUT_TEXT 输入正文，最后点击发送/提交按钮。\n")
         prompt.append("6. 如果没有看到目标元素，可以 WAIT、SWIPE、BACK 或点击合理的导航入口；不要连续重复同一无效动作。\n")
         prompt.append("7. UI 树为空且没有真实截图时，不要根据空白图或想象判断当前页面；最多等待一轮，之后应 BACK 或使用可确定的系统导航恢复可操作状态。\n")
-        prompt.append("8. 任务完成后返回 NO_ACTION。\n")
-        prompt.append("9. 每次只返回一个最小可执行操作，等待下一轮屏幕捕获验证。\n")
+        prompt.append("8. 如果规划要求草稿模式或用户确认，不要点击最终发送/支付/提交按钮；准备好后返回 NO_ACTION。\n")
+        prompt.append("9. 任务完成后返回 NO_ACTION。\n")
+        prompt.append("10. 每次只返回一个最小可执行操作，等待下一轮屏幕捕获验证。\n")
 
         return prompt.toString()
     }
