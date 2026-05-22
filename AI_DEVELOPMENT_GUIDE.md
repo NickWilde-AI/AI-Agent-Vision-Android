@@ -108,7 +108,7 @@ ALIYUN_API_KEY=your-api-key
 4. RAG 持久化。
 5. 真机评测任务集。
 
-完整路线见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+完整产品规划见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
 ## 代码规范
 
@@ -172,7 +172,7 @@ git push origin main
 ## 文档维护规则
 
 - README 只写项目现状和入口。
-- ROADMAP 写完整开发计划。
+- ROADMAP 写产品定位、用户场景、版本规划和上线边界。
 - ARCHITECTURE 写真实架构，不写愿景口号。
 - GETTING_STARTED 写运行步骤。
 - PHASE 文档只作为历史记录。
