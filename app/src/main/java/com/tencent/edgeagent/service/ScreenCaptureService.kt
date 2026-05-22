@@ -15,6 +15,8 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
@@ -35,12 +37,17 @@ class ScreenCaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
+    private var imageReaderThread: HandlerThread? = null
+    private var imageReaderHandler: Handler? = null
+    private var mediaProjectionCallback: MediaProjection.Callback? = null
     
     private var screenWidth = 0
     private var screenHeight = 0
     private var screenDensity = 0
     
     private var captureCallback: ((Bitmap) -> Unit)? = null
+    private val frameLock = Any()
+    private var latestFrame: Bitmap? = null
 
     companion object {
         private const val NOTIFICATION_ID = 1001
@@ -89,8 +96,14 @@ class ScreenCaptureService : Service() {
          * 请求当前屏幕帧
          */
         fun captureScreen(callback: (Bitmap) -> Unit) {
-            instance?.captureCallback = callback
-            instance?.captureScreenInternal()
+            val service = instance
+            if (service == null) {
+                callback(Bitmap.createBitmap(1080, 2400, Bitmap.Config.ARGB_8888))
+                return
+            }
+
+            service.captureCallback = callback
+            service.captureScreenInternal()
         }
     }
 
@@ -203,6 +216,8 @@ class ScreenCaptureService : Service() {
      */
     private fun startMediaProjection(resultCode: Int, data: Intent) {
         try {
+            stopMediaProjection()
+
             val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data)
             
@@ -211,6 +226,9 @@ class ScreenCaptureService : Service() {
                 stopSelf()
                 return
             }
+
+            imageReaderThread = HandlerThread("VisionAgentScreenCapture").apply { start() }
+            imageReaderHandler = Handler(imageReaderThread!!.looper)
             
             // 创建 ImageReader
             imageReader = ImageReader.newInstance(
@@ -218,7 +236,20 @@ class ScreenCaptureService : Service() {
                 screenHeight,
                 PixelFormat.RGBA_8888,
                 2
-            )
+            ).apply {
+                setOnImageAvailableListener(
+                    { reader -> cacheLatestFrame(reader) },
+                    imageReaderHandler
+                )
+            }
+
+            mediaProjectionCallback = object : MediaProjection.Callback() {
+                override fun onStop() {
+                    Timber.w("MediaProjection 已被系统停止")
+                    releaseCaptureResources(stopProjection = false)
+                }
+            }
+            mediaProjection?.registerCallback(mediaProjectionCallback!!, imageReaderHandler)
             
             // 创建 VirtualDisplay
             virtualDisplay = mediaProjection?.createVirtualDisplay(
@@ -245,18 +276,42 @@ class ScreenCaptureService : Service() {
      */
     private fun stopMediaProjection() {
         try {
-            virtualDisplay?.release()
-            virtualDisplay = null
-            
-            imageReader?.close()
-            imageReader = null
-            
-            mediaProjection?.stop()
-            mediaProjection = null
-            
+            releaseCaptureResources(stopProjection = true)
             Timber.d("MediaProjection 已停止")
         } catch (e: Exception) {
             Timber.e(e, "停止 MediaProjection 失败")
+        }
+    }
+
+    private fun releaseCaptureResources(stopProjection: Boolean) {
+        virtualDisplay?.release()
+        virtualDisplay = null
+
+        imageReader?.setOnImageAvailableListener(null, null)
+        imageReader?.close()
+        imageReader = null
+
+        mediaProjectionCallback?.let { callback ->
+            try {
+                mediaProjection?.unregisterCallback(callback)
+            } catch (e: Exception) {
+                Timber.w(e, "注销 MediaProjection callback 失败")
+            }
+        }
+        mediaProjectionCallback = null
+
+        if (stopProjection) {
+            mediaProjection?.stop()
+        }
+        mediaProjection = null
+
+        imageReaderThread?.quitSafely()
+        imageReaderThread = null
+        imageReaderHandler = null
+
+        synchronized(frameLock) {
+            latestFrame?.recycle()
+            latestFrame = null
         }
     }
 
@@ -265,28 +320,11 @@ class ScreenCaptureService : Service() {
      */
     private fun captureScreenInternal() {
         try {
-            val reader = imageReader
-            if (reader == null) {
-                Timber.e("ImageReader 未初始化")
-                captureCallback?.invoke(createEmptyBitmap())
-                captureCallback = null
-                return
-            }
-            
-            // 获取最新的 Image
-            val image = reader.acquireLatestImage()
-            if (image == null) {
-                Timber.e("无法获取 Image")
-                captureCallback?.invoke(createEmptyBitmap())
-                captureCallback = null
-                return
-            }
-            
-            // 转换为 Bitmap
-            val bitmap = imageToBitmap(image)
-            image.close()
-            
-            Timber.d("截图成功: ${bitmap.width}x${bitmap.height}")
+            val bitmap = synchronized(frameLock) {
+                latestFrame?.copy(Bitmap.Config.ARGB_8888, false)
+            } ?: drainLatestFrameOnce() ?: createEmptyBitmap()
+
+            Timber.d("返回截图: ${bitmap.width}x${bitmap.height}, cached=${latestFrame != null}")
             captureCallback?.invoke(bitmap)
             captureCallback = null
             
@@ -294,6 +332,51 @@ class ScreenCaptureService : Service() {
             Timber.e(e, "截图失败")
             captureCallback?.invoke(createEmptyBitmap())
             captureCallback = null
+        }
+    }
+
+    private fun cacheLatestFrame(reader: ImageReader) {
+        val image = try {
+            reader.acquireLatestImage()
+        } catch (e: Exception) {
+            Timber.e(e, "读取最新屏幕帧失败")
+            null
+        } ?: return
+
+        try {
+            val bitmap = imageToBitmap(image)
+            synchronized(frameLock) {
+                latestFrame?.recycle()
+                latestFrame = bitmap
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "缓存屏幕帧失败")
+        } finally {
+            image.close()
+        }
+    }
+
+    private fun drainLatestFrameOnce(): Bitmap? {
+        val reader = imageReader ?: return null
+        val image = try {
+            reader.acquireLatestImage()
+        } catch (e: Exception) {
+            Timber.e(e, "主动读取屏幕帧失败")
+            null
+        } ?: return null
+
+        return try {
+            imageToBitmap(image).also { bitmap ->
+                synchronized(frameLock) {
+                    latestFrame?.recycle()
+                    latestFrame = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "主动转换屏幕帧失败")
+            null
+        } finally {
+            image.close()
         }
     }
 
@@ -318,7 +401,9 @@ class ScreenCaptureService : Service() {
         
         // 如果有 padding，裁剪到正确的尺寸
         return if (rowPadding != 0) {
-            Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight)
+            Bitmap.createBitmap(bitmap, 0, 0, screenWidth, screenHeight).also {
+                bitmap.recycle()
+            }
         } else {
             bitmap
         }
@@ -328,6 +413,8 @@ class ScreenCaptureService : Service() {
      * 创建空白 Bitmap（兜底）
      */
     private fun createEmptyBitmap(): Bitmap {
-        return Bitmap.createBitmap(screenWidth, screenHeight, Bitmap.Config.ARGB_8888)
+        val width = screenWidth.takeIf { it > 0 } ?: 1080
+        val height = screenHeight.takeIf { it > 0 } ?: 2400
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     }
 }

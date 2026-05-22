@@ -11,6 +11,10 @@
     
     <!-- 悬浮窗权限（后续使用） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 修改系统设置权限（亮度调节需要用户单独授权） -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
     
     <!-- 查询所有应用包权限（Android 11+） -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"

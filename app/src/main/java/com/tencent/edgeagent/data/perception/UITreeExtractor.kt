@@ -18,21 +18,48 @@ class UITreeExtractor private constructor() {
      * 提取 UI 树文本表示
      */
     fun extractUITree(rootNode: AccessibilityNodeInfo?): String {
+        return extractUiTree(rootNode).toPromptText()
+    }
+
+    /**
+     * 提取结构化 UI 树。
+     *
+     * 结构化数据用于本地规则、坐标校验和失败回放；文本表示只作为模型 prompt。
+     */
+    fun extractUiTree(rootNode: AccessibilityNodeInfo?): UiTreeSnapshot {
         if (rootNode == null) {
-            return "UI Tree: null"
+            return UiTreeSnapshot(root = null, clickableElements = emptyList())
         }
+
+        return try {
+            val root = buildUiNode(rootNode, depth = 0)
+            val clickableElements = mutableListOf<ClickableElement>()
+            root?.collectClickableElements(clickableElements)
+            UiTreeSnapshot(root = root, clickableElements = clickableElements)
+        } catch (e: Exception) {
+            Timber.e(e, "提取结构化 UI 树失败")
+            UiTreeSnapshot(root = null, clickableElements = emptyList(), error = e.message)
+        }
+    }
+
+    private fun UiTreeSnapshot.toPromptText(): String {
+        if (root == null && error == null) return "UI Tree: null"
 
         val builder = StringBuilder()
         builder.append("UI Tree with bounds:\n")
         builder.append("Format: [Class] text desc id bounds=[l,t,r,b] center=(x,y) states\n")
 
+        if (error != null) {
+            builder.append("Error: $error\n")
+            return builder.toString()
+        }
+
         try {
-            val clickableElements = extractClickableElements(rootNode)
             appendClickableSummary(builder, clickableElements)
             builder.append("\nNode Tree:\n")
-            traverseNode(rootNode, builder, 0)
+            root?.appendPromptNode(builder)
         } catch (e: Exception) {
-            Timber.e(e, "提取 UI 树失败")
+            Timber.e(e, "渲染 UI 树文本失败")
             builder.append("Error: ${e.message}\n")
         }
 
@@ -57,19 +84,47 @@ class UITreeExtractor private constructor() {
     }
 
     /**
-     * 递归遍历节点
+     * 递归构建结构化节点
      */
-    private fun traverseNode(node: AccessibilityNodeInfo, builder: StringBuilder, depth: Int) {
-        if (depth > MAX_DEPTH) return
-        if (!isUsefulNode(node)) return
+    private fun buildUiNode(node: AccessibilityNodeInfo, depth: Int): UiNode? {
+        if (depth > MAX_DEPTH) return null
 
-        val indent = "  ".repeat(depth)
-        val className = node.className?.toString() ?: "Unknown"
-        val text = node.text?.toString().orEmpty()
-        val contentDesc = node.contentDescription?.toString().orEmpty()
-        val viewId = node.viewIdResourceName.orEmpty()
+        val children = mutableListOf<UiNode>()
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                buildUiNode(child, depth + 1)?.let { children.add(it) }
+            } finally {
+                child.recycle()
+            }
+        }
+
+        if (!isUsefulNode(node) && children.isEmpty()) return null
+
         val bounds = Rect().also { node.getBoundsInScreen(it) }
+        return UiNode(
+            className = node.className?.toString() ?: "Unknown",
+            text = node.text?.toString().orEmpty(),
+            contentDesc = node.contentDescription?.toString().orEmpty(),
+            viewId = node.viewIdResourceName.orEmpty(),
+            bounds = bounds,
+            isClickable = node.isClickable,
+            isLongClickable = node.isLongClickable,
+            isEditable = node.isEditable,
+            isFocused = node.isFocused,
+            isSelected = node.isSelected,
+            isCheckable = node.isCheckable,
+            isChecked = node.isChecked,
+            isScrollable = node.isScrollable,
+            isEnabled = node.isEnabled,
+            isVisibleToUser = node.isVisibleToUser,
+            depth = depth,
+            children = children
+        )
+    }
 
+    private fun UiNode.appendPromptNode(builder: StringBuilder) {
+        val indent = "  ".repeat(depth)
         val nodeDesc = buildString {
             append("$indent[$className]")
             if (text.isNotEmpty()) append(" text='").append(sanitize(text)).append("'")
@@ -77,21 +132,14 @@ class UITreeExtractor private constructor() {
             if (viewId.isNotEmpty()) append(" id='").append(viewId).append("'")
             append(" ").append(formatBounds(bounds))
             append(" center=(${bounds.centerX()},${bounds.centerY()})")
-            appendStateFlags(node)
+            appendStateFlags(this@appendPromptNode)
         }
 
         builder.append(nodeDesc).append("\n")
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            if (child != null) {
-                traverseNode(child, builder, depth + 1)
-                child.recycle()
-            }
-        }
+        children.forEach { it.appendPromptNode(builder) }
     }
 
-    private fun StringBuilder.appendStateFlags(node: AccessibilityNodeInfo) {
+    private fun StringBuilder.appendStateFlags(node: UiNode) {
         if (node.isClickable) append(" [clickable]")
         if (node.isLongClickable) append(" [longClickable]")
         if (node.isEditable) append(" [editable]")
@@ -102,6 +150,24 @@ class UITreeExtractor private constructor() {
         if (node.isScrollable) append(" [scrollable]")
         if (!node.isEnabled) append(" [disabled]")
         if (!node.isVisibleToUser) append(" [notVisible]")
+    }
+
+    private fun UiNode.collectClickableElements(elements: MutableList<ClickableElement>) {
+        if ((isClickable || isLongClickable || isEditable) && isVisibleToUser && !bounds.isEmpty) {
+            elements.add(
+                ClickableElement(
+                    text = text,
+                    contentDesc = contentDesc,
+                    className = className,
+                    viewId = viewId,
+                    bounds = Rect(bounds),
+                    isEditable = isEditable,
+                    isScrollable = isScrollable
+                )
+            )
+        }
+
+        children.forEach { it.collectClickableElements(elements) }
     }
 
     /**
@@ -214,3 +280,35 @@ data class ClickableElement(
         }
     }
 }
+
+/**
+ * 结构化 UI 树快照。
+ */
+data class UiTreeSnapshot(
+    val root: UiNode?,
+    val clickableElements: List<ClickableElement>,
+    val error: String? = null
+)
+
+/**
+ * 可被本地规则和动作校验复用的 UI 节点。
+ */
+data class UiNode(
+    val className: String,
+    val text: String,
+    val contentDesc: String,
+    val viewId: String,
+    val bounds: Rect,
+    val isClickable: Boolean,
+    val isLongClickable: Boolean,
+    val isEditable: Boolean,
+    val isFocused: Boolean,
+    val isSelected: Boolean,
+    val isCheckable: Boolean,
+    val isChecked: Boolean,
+    val isScrollable: Boolean,
+    val isEnabled: Boolean,
+    val isVisibleToUser: Boolean,
+    val depth: Int,
+    val children: List<UiNode>
+)

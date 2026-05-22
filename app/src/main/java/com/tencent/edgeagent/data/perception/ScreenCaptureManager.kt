@@ -44,9 +44,9 @@ class ScreenCaptureManager private constructor() {
         
         // 请求截图
         ScreenCaptureService.captureScreen { bitmap ->
-            // 缓存最后一次截图
+            // 缓存副本，避免后续 recycle 影响调用方持有的 Bitmap。
             lastScreenshot?.recycle()
-            lastScreenshot = bitmap
+            lastScreenshot = bitmap.copy(Bitmap.Config.ARGB_8888, false)
             
             continuation.resume(bitmap)
         }
@@ -58,7 +58,7 @@ class ScreenCaptureManager private constructor() {
      * @return 最后一次截图，如果没有则返回空白 Bitmap
      */
     fun getLastScreenshot(): Bitmap {
-        return lastScreenshot ?: createEmptyBitmap()
+        return lastScreenshot?.copy(Bitmap.Config.ARGB_8888, false) ?: createEmptyBitmap()
     }
     
     /**

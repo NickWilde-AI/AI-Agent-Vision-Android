@@ -1,0 +1,217 @@
+package com.tencent.edgeagent.domain.agent
+
+import android.graphics.Bitmap
+import com.tencent.edgeagent.data.cloud.CloudApiException
+import com.tencent.edgeagent.data.cloud.CloudFallbackManager
+import com.tencent.edgeagent.data.execution.ActionExecutor
+import com.tencent.edgeagent.data.execution.ExecutionResult
+import com.tencent.edgeagent.data.inference.ILocalModelEngine
+import com.tencent.edgeagent.data.inference.MockModelEngine
+import com.tencent.edgeagent.domain.model.ActionType
+import com.tencent.edgeagent.domain.model.AgentEvent
+import com.tencent.edgeagent.domain.model.AgentIntent
+import com.tencent.edgeagent.domain.model.AgentResponse
+import com.tencent.edgeagent.domain.model.AgentState
+import com.tencent.edgeagent.domain.model.ScreenData
+import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
+import kotlinx.coroutines.flow.StateFlow
+import timber.log.Timber
+
+/**
+ * Coordinates the product-facing Agent flow.
+ *
+ * UI should not decide how perception, reasoning, fallback, and execution are wired.
+ * This class owns that orchestration so the Android Agent can evolve independently
+ * from the screen used to trigger it.
+ */
+class AgentOrchestrator private constructor(
+    private val stateMachine: AgentStateMachine,
+    private val intentRouter: IntentRouter,
+    private val localModelEngine: ILocalModelEngine,
+    private val cloudFallbackManager: CloudFallbackManager,
+    private val actionExecutor: ActionExecutor,
+    private val agentExecutor: AgentExecutor
+) {
+
+    val agentState: StateFlow<AgentState> = stateMachine.currentState
+
+    suspend fun executeCommand(
+        userInput: String,
+        onProgress: (String) -> Unit = {},
+        onResponse: (AgentResponse) -> Unit = {}
+    ): AgentRunResult {
+        return try {
+            Timber.i("[AgentFlow] start command=$userInput")
+            onProgress("开始执行...")
+
+            stateMachine.handleEvent(AgentEvent.UserTriggered(userInput))
+
+            val intent = intentRouter.parseIntent(userInput)
+            val result = if (cloudFallbackManager.isEnabled()) {
+                executeCloudAgent(userInput, intent, onProgress, onResponse)
+            } else {
+                executeLocalSingleRound(userInput, intent, onProgress, onResponse)
+            }
+
+            stateMachine.handleEvent(AgentEvent.Reset)
+            result
+        } catch (e: Exception) {
+            Timber.e(e, "[AgentFlow] command failed")
+            val message = e.message ?: "未知错误"
+            stateMachine.handleEvent(AgentEvent.Error(e, message))
+            AgentRunResult.Failure("执行异常: $message")
+        }
+    }
+
+    private suspend fun executeCloudAgent(
+        userGoal: String,
+        intent: AgentIntent,
+        onProgress: (String) -> Unit,
+        onResponse: (AgentResponse) -> Unit
+    ): AgentRunResult {
+        Timber.i("[AgentFlow] cloud multi-round mode intent=${intent.type}")
+        val result = agentExecutor.executeTask(
+            userGoal = userGoal,
+            onProgress = onProgress,
+            onDecision = onResponse
+        )
+
+        return when (result) {
+            is TaskExecutionResult.Success -> {
+                AgentRunResult.Success("任务完成，共 ${result.rounds} 轮对话")
+            }
+            is TaskExecutionResult.Failure -> {
+                AgentRunResult.Failure("任务失败: ${result.reason}")
+            }
+        }
+    }
+
+    private suspend fun executeLocalSingleRound(
+        userInput: String,
+        intent: AgentIntent,
+        onProgress: (String) -> Unit,
+        onResponse: (AgentResponse) -> Unit
+    ): AgentRunResult {
+        Timber.i("[AgentFlow] local single-round mode intent=${intent.type}")
+        val screenData = captureRealScreenData() ?: createFallbackScreenData()
+        stateMachine.handleEvent(AgentEvent.PerceptionComplete(screenData))
+
+        val localResponse = localModelEngine.inference(
+            image = screenData.bitmap,
+            prompt = userInput,
+            uiTree = screenData.uiTreeText
+        )
+        onResponse(localResponse)
+        stateMachine.handleEvent(AgentEvent.LocalReasoningComplete(localResponse))
+
+        val finalResponse = resolveFinalResponse(userInput, intent, screenData, localResponse, onProgress, onResponse)
+        onProgress("执行：${finalResponse.action}")
+
+        return executeAction(finalResponse)
+    }
+
+    private suspend fun resolveFinalResponse(
+        userInput: String,
+        intent: AgentIntent,
+        screenData: ScreenData,
+        localResponse: AgentResponse,
+        onProgress: (String) -> Unit,
+        onResponse: (AgentResponse) -> Unit
+    ): AgentResponse {
+        if (!intentRouter.shouldUseCloud(intent, localResponse.confidence)) {
+            return localResponse
+        }
+
+        onProgress("调用云端模型...")
+        return try {
+            if (!cloudFallbackManager.isEnabled()) {
+                Timber.w("[AgentFlow] cloud fallback requested but cloud disabled")
+                markCloudReasoningCompleteIfNeeded(localResponse)
+                localResponse
+            } else {
+                cloudFallbackManager.inference(
+                    image = screenData.bitmap,
+                    prompt = userInput,
+                    uiTree = screenData.uiTreeText
+                ).also { cloudResponse ->
+                    onResponse(cloudResponse)
+                    stateMachine.handleEvent(AgentEvent.CloudReasoningComplete(cloudResponse))
+                }
+            }
+        } catch (e: CloudApiException) {
+            Timber.e(e, "[AgentFlow] cloud fallback failed, using local response")
+            onProgress("云端失败，使用本地结果: ${e.message}")
+            markCloudReasoningCompleteIfNeeded(localResponse)
+            localResponse
+        }
+    }
+
+    private fun markCloudReasoningCompleteIfNeeded(response: AgentResponse) {
+        if (stateMachine.currentState.value == AgentState.REASONING_CLOUD) {
+            stateMachine.handleEvent(AgentEvent.CloudReasoningComplete(response))
+        }
+    }
+
+    private suspend fun executeAction(response: AgentResponse): AgentRunResult {
+        if (response.action == ActionType.NO_ACTION) {
+            stateMachine.handleEvent(AgentEvent.ExecutionComplete)
+            return AgentRunResult.Success("无需操作")
+        }
+
+        return when (val result = actionExecutor.execute(response)) {
+            is ExecutionResult.Success -> {
+                stateMachine.handleEvent(AgentEvent.ExecutionComplete)
+                AgentRunResult.Success(result.message)
+            }
+            is ExecutionResult.Failure -> {
+                val error = Exception(result.message)
+                stateMachine.handleEvent(AgentEvent.Error(error, result.message))
+                AgentRunResult.Failure(result.message)
+            }
+        }
+    }
+
+    private suspend fun captureRealScreenData(): ScreenData? {
+        return try {
+            EdgeAgentAccessibilityService.getInstance()?.captureScreenData()
+        } catch (e: Exception) {
+            Timber.e(e, "[AgentFlow] capture screen failed")
+            null
+        }
+    }
+
+    private fun createFallbackScreenData(): ScreenData {
+        val bitmap = Bitmap.createBitmap(1080, 2400, Bitmap.Config.ARGB_8888)
+        return ScreenData(
+            bitmap = bitmap,
+            uiTreeText = "UI Tree: unavailable",
+            screenWidth = 1080,
+            screenHeight = 2400,
+            currentPackage = "com.tencent.edgeagent",
+            hasRealScreenshot = false
+        )
+    }
+
+    companion object {
+        @Volatile
+        private var instance: AgentOrchestrator? = null
+
+        fun getInstance(): AgentOrchestrator {
+            return instance ?: synchronized(this) {
+                instance ?: AgentOrchestrator(
+                    stateMachine = AgentStateMachine.getInstance(),
+                    intentRouter = IntentRouter.getInstance(),
+                    localModelEngine = MockModelEngine.getInstance(),
+                    cloudFallbackManager = CloudFallbackManager.getInstance(),
+                    actionExecutor = ActionExecutor.getInstance(),
+                    agentExecutor = AgentExecutor.getInstance()
+                ).also { instance = it }
+            }
+        }
+    }
+}
+
+sealed class AgentRunResult {
+    data class Success(val message: String) : AgentRunResult()
+    data class Failure(val message: String) : AgentRunResult()
+}

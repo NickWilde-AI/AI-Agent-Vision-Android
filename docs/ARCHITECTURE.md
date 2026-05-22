@@ -2,21 +2,21 @@
 
 ## 1. 架构概览
 
-本项目采用 **Clean Architecture** 分层架构，结合 **端侧优先 (Edge-First)** 设计理念。
+本项目采用 **Clean Architecture** 分层架构，目标是构建可长期演进的真实 Android Agent，而不是一次性演示 Demo。
 
 ### 核心设计原则
 
-1. **端侧优先**：所有基础功能必须在断网情况下可用
-2. **隐私合规**：敏感数据（设备控制、本地文件）绝不上云
-3. **按需兜底**：仅在本地模型置信度不足时才调用云端 API
-4. **松耦合设计**：感知层、推理层、执行层通过接口解耦
+1. **真实可执行**：每个决策必须能映射为可验证的 Android 无障碍动作
+2. **隐私合规**：设备控制、本地文件、支付等敏感路径默认本地处理或请求用户确认
+3. **视觉优先**：当前默认使用千问视觉模型理解屏幕，后续逐步补齐本地策略和本地模型
+4. **松耦合设计**：UI、编排、感知、推理、执行分层解耦，便于替换模型和策略
 
 ## 2. 分层架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Presentation Layer                        │
-│  (UI/ViewModel - Jetpack Compose/XML + StateFlow)           │
+│  (UI/ViewModel - XML + StateFlow)                           │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -82,6 +82,7 @@ IDLE → PERCEIVING → REASONING_LOCAL → EXECUTING → COMPLETED → IDLE
 - 协调整个 Agent 的工作流
 - 管理状态机转换
 - 调度感知、推理、执行三大模块
+- 对 UI 层隐藏云端/本地/多轮/单轮的具体执行策略
 
 ### IntentRouter (意图路由)
 - 根据用户输入和上下文判断意图类型
@@ -110,7 +111,7 @@ interface ILocalModelEngine {
 
 ```
 用户触发
-  → MainViewModel.testInference()
+  → MainViewModel.executeCommand()
   → 云端启用时统一进入 AgentExecutor 多轮模式
   → AccessibilityService 捕获屏幕 (Bitmap + 坐标化 UI Tree)
   → UITreeExtractor 输出 Clickable Elements + bounds/center

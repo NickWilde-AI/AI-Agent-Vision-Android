@@ -16,15 +16,16 @@
 
 ## 📖 项目简介
 
-VisionAgent 是一个面向 2026 年 AI 大厂面试的**顶级项目作品集**，展示了端侧 AI 工程落地能力和移动端架构设计水平。
+VisionAgent 是一个真实可演进的 Android Agent 项目，目标是在用户授权范围内理解手机屏幕、规划下一步动作，并通过系统无障碍能力完成可验证的自动化操作。
 
 ### 核心特性
 
-- 🚀 **端侧优先**：断网场景 100% 基础可用，本地推理优先
+- 🚀 **端侧优先目标**：基础设备控制与确定性操作优先在本地完成
 - 🔒 **隐私合规**：设备控制、文本输入等敏感操作绝不上云
-- ☁️ **云端优先闭环**：当前阶段所有联网任务优先走云端多轮 Agent，先跑通商业化闭环
+- ☁️ **视觉模型闭环**：当前默认使用千问视觉模型完成屏幕理解与多轮决策
 - 🎯 **真实操作**：基于 AccessibilityService 实现屏幕点击、滑动、输入、返回、Home
 - 👁️ **坐标化 UI 树**：提取 `bounds` 与 `center`，让模型能精准定位屏幕元素
+- 🧭 **Agent 编排层**：由 `AgentOrchestrator` 统一协调感知、推理、执行与状态转换
 - 🧠 **状态机驱动**：7 个状态，清晰的状态转换逻辑
 - 🔄 **多轮反馈循环**：截图/UI 树 → 云端决策 → 无障碍执行 → 截图验证
 
@@ -50,8 +51,9 @@ VisionAgent 是一个面向 2026 年 AI 大厂面试的**顶级项目作品集**
 ┌─────────────────────────────────────────────────────────────┐
 │                      Domain Layer                            │
 │  ┌──────────────────────────────────────────────────────┐   │
+│  │   AgentOrchestrator (核心编排器)                    │   │
 │  │   AgentStateMachine (7 状态状态机)                   │   │
-│  │   IntentRouter (6 种意图类型 + 云端路由决策)         │   │
+│  │   IntentRouter (6 种意图类型 + 端云路由决策)         │   │
 │  └──────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                             ↓
@@ -61,7 +63,7 @@ VisionAgent 是一个面向 2026 年 AI 大厂面试的**顶级项目作品集**
 │  │  Perception  │  │  Inference   │  │  Execution   │      │
 │  │   (感知)      │  │   (推理)     │  │   (执行)      │      │
 │  │              │  │              │  │              │      │
-│  │ Screen       │  │ MockVLM      │  │ Gesture      │      │
+│  │ Screen       │  │ Qwen-VL      │  │ Gesture      │      │
 │  │ Capture      │  │ Engine       │  │ Executor     │      │
 │  │              │  │              │  │              │      │
 │  │ UI Tree      │  │ Cloud        │  │ Action       │      │
@@ -117,17 +119,13 @@ cd AI-Agent-Vision-Android
 
 2. **配置云端 API（可选）**
 
-如果需要使用云端 AI 功能，编辑 `app/src/main/java/com/tencent/edgeagent/data/cloud/CloudConfig.kt`：
+如果需要使用云端视觉模型，先在项目根目录的 `local.properties` 写入：
 
-```kotlin
-object CloudConfig {
-    const val ENABLE_CLOUD = true  // 启用云端
-    val PROVIDER = CloudProvider.DEEPSEEK
-    const val DEEPSEEK_API_KEY = "sk-your-api-key-here"  // 替换为你的 API Key
-}
+```properties
+ALIYUN_API_KEY=your-qwen-api-key
 ```
 
-获取 API Key：https://platform.deepseek.com/
+默认 Provider 在 `CloudConfig.kt` 中配置为 `CloudProvider.ALIYUN`，当前会走阿里云百炼/千问视觉模型 `qwen-vl-max`。
 
 3. **构建并安装**
 
@@ -141,9 +139,9 @@ object CloudConfig {
 
 设置 → 无障碍 → VisionAgent → 开启服务
 
-5. **测试功能**
+5. **运行 Agent**
 
-打开应用，点击测试按钮，观察日志输出和真实操作效果。
+打开应用，输入指令或点击快捷动作，观察日志输出和真实操作效果。
 
 ---
 
@@ -155,11 +153,12 @@ object CloudConfig {
 |---------|------|------|
 | 状态机系统 | ✅ 完成 | 7 个状态，完整的状态转换逻辑 |
 | 意图路由 | ✅ 完成 | 6 种意图类型，智能云端决策 |
-| Mock 推理引擎 | ✅ 完成 | 模拟真实 VLM 推理流程 |
+| Agent 编排器 | ✅ 完成 | 收拢感知、推理、执行与状态机流转 |
+| 本地 Mock 引擎 | ✅ 完成 | 断网和开发调试兜底 |
 | 无障碍服务 | ✅ 完成 | 屏幕捕获、坐标化 UI 树提取 |
 | 手势执行 | ✅ 完成 | 点击、滑动、返回、Home |
 | 动作执行器 | ✅ 完成 | AgentResponse → 真实无障碍操作 |
-| 云端 API 集成 | ✅ 完成 | DeepSeek / 阿里云 API，统一客户端抽象 |
+| 云端 API 集成 | ✅ 完成 | 默认千问视觉模型，保留多 Provider 抽象 |
 | 多轮 Agent 闭环 | ✅ 完成 | 云端决策 → 无障碍执行 → 截图验证 |
 | 全无障碍打开应用 | ✅ 完成 | HOME → 桌面找图标 → 点击启动 |
 | Bitmap 对象池 | ✅ 完成 | 内存优化，避免频繁 GC |
@@ -184,7 +183,7 @@ object CloudConfig {
 - **架构**：Clean Architecture + 单例模式
 - **异步**：Kotlin Coroutines + Flow
 - **UI**：传统 XML 布局 + ViewBinding
-- **推理**：MockVLM (开发阶段) + DeepSeek API (云端)
+- **推理**：Qwen-VL-Max（云端视觉）+ MockVLM（本地调试）
 - **无障碍**：AccessibilityService + GestureDescription
 
 ### 依赖库
@@ -220,7 +219,7 @@ timber: 5.0.1
 | [云端 API 示例](docs/API_EXAMPLES.md) | DeepSeek 等调用示例 |
 | [AI 脚手架 Prompt](docs/AI_BOOTSTRAP_PROMPT.md) | 从零生成项目的 Prompt（非运行时 API 文档） |
 
-### Phase 总结（均在 `docs/`）
+### 历史阶段总结（均在 `docs/`）
 
 | Phase | 文档 | 说明 |
 |-------|------|------|
@@ -232,44 +231,31 @@ timber: 5.0.1
 
 ---
 
-## 🎯 面试亮点
+## 🧭 产品化重构方向
 
-### 1. 端侧 AI 工程落地能力
+当前项目已经从演示型结构切换为真实 Android Agent 的主线。后续开发优先围绕稳定性、可观测性和任务成功率推进。
 
-- **问题**：如何在移动端实现 AI Agent？
-- **回答**：我采用「端侧优先，云端兜底」架构，本地 Mock 引擎模拟推理流程，低置信度自动调用 DeepSeek API。通过 AccessibilityService 捕获屏幕和 UI 树，实现真实的点击、滑动操作。
+### 近期重点
 
-### 2. 架构设计能力
-
-- **问题**：为什么选择状态机模式？
-- **回答**：Agent 的工作流是典型的状态机模型。我定义了 7 个状态和明确的转换规则，每次状态转换都会校验合法性。比如只有在 REASONING_LOCAL 状态下，才能根据置信度决定是执行还是云端兜底。
-
-### 3. 隐私合规意识
-
-- **问题**：如何保证用户隐私？
-- **回答**：我在 IntentRouter 中为每种意图设置了 `allowCloudFallback` 标志。设备控制和文本输入的意图，这个标志是 false，意味着数据绝不上云。这是在架构层面做的隐私保护。
-
-### 4. 性能优化能力
-
-- **问题**：频繁截图会导致内存问题，如何优化？
-- **回答**：我实现了 Bitmap 对象池（ScreenCaptureManager），使用 ConcurrentLinkedQueue 管理最多 3 个 Bitmap。每次需要截图时先从池中获取，用完后回收到池中，避免频繁的内存分配和 GC。
+- **屏幕感知稳定性**：MediaProjection 改为持续帧监听和最新帧缓存，避免空白截图。
+- **结构化 UI 树**：在文本摘要之外引入结构化 `UiNode`，支持规则匹配、坐标校验和失败重试。
+- **App 专项策略**：先优化微信搜索联系人、进入聊天、美团搜索等高频路径。
+- **高风险确认**：发消息、下单、支付、删除等动作必须进入用户确认流程。
+- **失败样本记录**：保存每轮包名、UI 树、截图状态、模型输出、执行结果，用于回放和调参。
 
 ---
 
 ## 🔧 开发进度
 
-| Phase | 功能 | 状态 | 完成度 |
-|-------|------|------|--------|
-| Phase 1 | 架构与基座搭建 | ✅ 完成 | 100% |
-| Phase 2 | 无障碍服务 | ✅ 完成 | 100% |
-| Phase 3 | 真实操作执行 | ✅ 完成 | 80% |
-| Phase 4 | 云端 API 集成 | ✅ 完成 | 100% |
-| Phase 5 | 云端优先全无障碍 Agent | ✅ 完成 | 100% |
-| Phase 6 | 本地 RAG | ⏳ 待开发 | 0% |
-| Phase 7 | 本地 VLM | ⏳ 可选 | 0% |
-| Phase 8 | 语音交互 | ⏳ 可选 | 0% |
+| 模块 | 状态 | 下一步 |
+|------|------|--------|
+| Agent 编排 | 已接入 | 拆分任务计划、观察、执行结果模型 |
+| 屏幕感知 | 可用 | 持续帧缓存 + 结构化 UI 树 |
+| 云端视觉 | 已接入千问 | 强化 JSON 协议和重试策略 |
+| 无障碍执行 | 可用 | 动作前校验 + 高风险确认 |
+| App 策略 | 初始 | 微信/美团专项成功率优化 |
 
-**当前 MVP 状态**：已切换为云端优先多轮 Agent 主流程，支持坐标化 UI 树、全无障碍执行、截图验证和结构化日志。
+**当前 MVP 状态**：已支持坐标化 UI 树、千问视觉模型、多轮 Agent 闭环、无障碍执行和基础日志。
 
 ---
 

@@ -59,6 +59,9 @@ class ActionExecutor private constructor() {
     ): ExecutionResult {
         return when (params) {
             is ActionParams.Click -> {
+                if (!isPointInScreen(service, params.x, params.y)) {
+                    return ExecutionResult.Failure("点击坐标越界: (${params.x}, ${params.y})")
+                }
                 val success = service.performClick(params.x, params.y, params.description)
                 if (success) {
                     ExecutionResult.Success("点击成功: (${params.x}, ${params.y})")
@@ -79,6 +82,9 @@ class ActionExecutor private constructor() {
     ): ExecutionResult {
         return when (params) {
             is ActionParams.LongClick -> {
+                if (!isPointInScreen(service, params.x, params.y)) {
+                    return ExecutionResult.Failure("长按坐标越界: (${params.x}, ${params.y})")
+                }
                 val success = service.performLongClick(params.x, params.y, params.durationMs)
                 if (success) {
                     ExecutionResult.Success("长按成功: (${params.x}, ${params.y})")
@@ -99,6 +105,12 @@ class ActionExecutor private constructor() {
     ): ExecutionResult {
         return when (params) {
             is ActionParams.Swipe -> {
+                if (!isPointInScreen(service, params.startX, params.startY) ||
+                    !isPointInScreen(service, params.endX, params.endY)) {
+                    return ExecutionResult.Failure(
+                        "滑动坐标越界: (${params.startX}, ${params.startY}) -> (${params.endX}, ${params.endY})"
+                    )
+                }
                 val success = service.performSwipe(
                     params.startX,
                     params.startY,
@@ -133,6 +145,11 @@ class ActionExecutor private constructor() {
                 try {
                     // Step 1: 点击目标位置让输入框获取焦点
                     if (params.targetX != null && params.targetY != null) {
+                        if (!isPointInScreen(service, params.targetX, params.targetY)) {
+                            return ExecutionResult.Failure(
+                                "输入框坐标越界: (${params.targetX}, ${params.targetY})"
+                            )
+                        }
                         service.performClick(params.targetX, params.targetY, "点击输入框")
                         kotlinx.coroutines.delay(400)
                     }
@@ -210,6 +227,15 @@ class ActionExecutor private constructor() {
             }
         }
         return null
+    }
+
+    private fun isPointInScreen(
+        service: EdgeAgentAccessibilityService,
+        x: Int,
+        y: Int
+    ): Boolean {
+        val metrics = service.resources.displayMetrics
+        return x in 0 until metrics.widthPixels && y in 0 until metrics.heightPixels
     }
 
     /**
@@ -557,6 +583,9 @@ class ActionExecutor private constructor() {
                             ExecutionResult.Success("音量减小")
                         }
                         DeviceControlType.BRIGHTNESS_UP -> {
+                            if (!ensureCanWriteSettings(context)) {
+                                return ExecutionResult.Success("已打开修改系统设置授权页")
+                            }
                             val current = android.provider.Settings.System.getInt(
                                 context.contentResolver,
                                 android.provider.Settings.System.SCREEN_BRIGHTNESS, 128
@@ -571,6 +600,9 @@ class ActionExecutor private constructor() {
                             ExecutionResult.Success("亮度增加至 $newVal")
                         }
                         DeviceControlType.BRIGHTNESS_DOWN -> {
+                            if (!ensureCanWriteSettings(context)) {
+                                return ExecutionResult.Success("已打开修改系统设置授权页")
+                            }
                             val current = android.provider.Settings.System.getInt(
                                 context.contentResolver,
                                 android.provider.Settings.System.SCREEN_BRIGHTNESS, 128
@@ -624,6 +656,19 @@ class ActionExecutor private constructor() {
             }
             else -> ExecutionResult.Failure("参数类型错误")
         }
+    }
+
+    private fun ensureCanWriteSettings(context: android.content.Context): Boolean {
+        if (android.provider.Settings.System.canWrite(context)) {
+            return true
+        }
+
+        val intent = android.content.Intent(
+            android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+            android.net.Uri.parse("package:${context.packageName}")
+        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+        return false
     }
 
     companion object {

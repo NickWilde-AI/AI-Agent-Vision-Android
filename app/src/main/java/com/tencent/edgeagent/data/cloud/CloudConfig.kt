@@ -29,11 +29,11 @@ object CloudConfig {
      * 云端服务提供商
      * 
      * 可选值：
-     * - CloudProvider.DEEPSEEK（推荐，性价比高）
-     * - CloudProvider.ALIYUN（阿里云百炼）
+     * - CloudProvider.DEEPSEEK（DeepSeek 文本模型）
+     * - CloudProvider.ALIYUN（阿里云百炼 / 千问视觉模型，推荐用于屏幕理解）
      * - CloudProvider.DOUBAO（豆包）
      */
-    val PROVIDER = CloudProvider.DEEPSEEK
+    val PROVIDER = CloudProvider.ALIYUN
     
     /**
      * DeepSeek API Key

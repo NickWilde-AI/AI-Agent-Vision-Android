@@ -47,8 +47,9 @@ class AliyunClient(
             // 构建系统提示词
             val systemPrompt = buildSystemPrompt()
             
-            // 构建用户消息（包含图片和文本）
-            val userContent = buildUserContent(image, prompt, uiTree)
+            // 构建用户消息。截图不可用时不要发送空白占位图，避免模型误判视觉内容。
+            val includeImage = !prompt.contains("当前真实截图是否可用: false")
+            val userContent = buildUserContent(image, prompt, uiTree, includeImage)
             
             // 发送请求
             val response = sendRequest(systemPrompt, userContent)
@@ -125,6 +126,7 @@ class AliyunClient(
 - OPEN_APP: 打开应用。执行层会优先走无障碍路径：HOME → 查找图标 → 点击。
 - BACK: 返回
 - HOME: 回到主屏幕
+- RECENTS: 打开最近任务/后台应用列表
 - WAIT: 等待页面加载
 - NO_ACTION: 任务完成
 
@@ -156,7 +158,7 @@ class AliyunClient(
 3. SWIPE: {"startX": 540, "startY": 1800, "endX": 540, "endY": 600, "durationMs": 400}
 4. INPUT_TEXT: {"text": "你好", "targetX": 540, "targetY": 2100}
 5. OPEN_APP: {"packageName": "com.tencent.mm", "appName": "微信"}
-6. BACK/HOME/NO_ACTION: {"message": "原因"}
+6. BACK/HOME/RECENTS/NO_ACTION: {"message": "原因"}
 7. WAIT: {"durationMs": 1000}
 
 决策规则：
@@ -174,7 +176,12 @@ class AliyunClient(
     /**
      * 构建用户消息内容（阿里云格式）
      */
-    private fun buildUserContent(image: Bitmap, prompt: String, uiTree: String?): JSONArray {
+    private fun buildUserContent(
+        image: Bitmap,
+        prompt: String,
+        uiTree: String?,
+        includeImage: Boolean
+    ): JSONArray {
         val content = JSONArray()
         
         // 添加文本内容
@@ -185,23 +192,28 @@ class AliyunClient(
             textBuilder.append("屏幕 UI 结构：\n$uiTree\n\n")
         }
         
-        textBuilder.append("请分析屏幕截图，理解用户意图，返回操作指令（JSON 格式）。")
+        if (includeImage) {
+            textBuilder.append("请结合屏幕截图和 UI 树理解用户意图，返回操作指令（JSON 格式）。")
+        } else {
+            textBuilder.append("屏幕截图不可用。不要根据空白图判断页面内容，只能依据 UI 树、包名和历史上下文返回操作指令（JSON 格式）。")
+        }
         
         content.put(JSONObject().apply {
             put("type", "text")
             put("text", textBuilder.toString())
         })
         
-        // 添加图片内容
-        val compressedImage = compressImage(image)
-        val base64Image = bitmapToBase64(compressedImage)
-        
-        content.put(JSONObject().apply {
-            put("type", "image_url")
-            put("image_url", JSONObject().apply {
-                put("url", "data:image/jpeg;base64,$base64Image")
+        if (includeImage) {
+            val compressedImage = compressImage(image)
+            val base64Image = bitmapToBase64(compressedImage)
+
+            content.put(JSONObject().apply {
+                put("type", "image_url")
+                put("image_url", JSONObject().apply {
+                    put("url", "data:image/jpeg;base64,$base64Image")
+                })
             })
-        })
+        }
         
         return content
     }
@@ -368,8 +380,8 @@ class AliyunClient(
             ActionType.INPUT_TEXT -> {
                 ActionParams.InputText(
                     text = paramsJson.optString("text", ""),
-                    targetX = paramsJson.optInt("targetX"),
-                    targetY = paramsJson.optInt("targetY")
+                    targetX = if (paramsJson.has("targetX")) paramsJson.optInt("targetX") else null,
+                    targetY = if (paramsJson.has("targetY")) paramsJson.optInt("targetY") else null
                 )
             }
             
@@ -386,7 +398,7 @@ class AliyunClient(
                 )
             }
             
-            ActionType.BACK, ActionType.HOME, ActionType.NO_ACTION -> {
+            ActionType.BACK, ActionType.HOME, ActionType.RECENTS, ActionType.NO_ACTION -> {
                 ActionParams.NoAction(
                     message = paramsJson.optString("message", "")
                 )

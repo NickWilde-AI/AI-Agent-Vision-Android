@@ -58,7 +58,8 @@ class AgentExecutor private constructor() {
      */
     suspend fun executeTask(
         userGoal: String,
-        onProgress: (String) -> Unit = {}
+        onProgress: (String) -> Unit = {},
+        onDecision: (AgentResponse) -> Unit = {}
     ): TaskExecutionResult {
         Timber.i("[AgentTask] start goal=$userGoal")
         onProgress("[0/$MAX_ROUNDS] 开始任务：$userGoal")
@@ -99,6 +100,7 @@ class AgentExecutor private constructor() {
                 }
                 
                 Timber.i("[AgentTask] round=$currentRound llm action=${response.action} confidence=${response.confidence} params=${response.actionParams}")
+                onDecision(response)
                 onProgress("[$currentRound/$MAX_ROUNDS] 决策：${describeAction(response)}")
                 
                 // 检查是否完成

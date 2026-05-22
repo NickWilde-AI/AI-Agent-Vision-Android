@@ -154,16 +154,16 @@ class MainActivity : AppCompatActivity() {
             val prompt = etCustomPrompt.text.toString().trim()
             if (prompt.isNotEmpty()) {
                 hideKeyboard()
-                viewModel.testInference(prompt)
+                viewModel.executeCommand(prompt)
             }
         }
 
         // 快捷测试
-        btnTest1.setOnClickListener { viewModel.testInference("点击屏幕中心") }
-        btnTest2.setOnClickListener { viewModel.testInference("向上滑动") }
-        btnTest3.setOnClickListener { viewModel.testInference("打开微信") }
-        btnTest4.setOnClickListener { viewModel.testInference("打开美团") }
-        btnTest5.setOnClickListener { viewModel.testInference("打开电话") }
+        btnTest1.setOnClickListener { viewModel.executeCommand("点击屏幕中心") }
+        btnTest2.setOnClickListener { viewModel.executeCommand("向上滑动") }
+        btnTest3.setOnClickListener { viewModel.executeCommand("打开微信") }
+        btnTest4.setOnClickListener { viewModel.executeCommand("打开美团") }
+        btnTest5.setOnClickListener { viewModel.executeCommand("打开电话") }
     }
 
     // ────────────────────────────────────────────
