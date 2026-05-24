@@ -114,6 +114,21 @@ adb logcat | grep -E "AgentTask|PlannerAgent|ReflectionAgent|ActionGuard|ActionE
 - `MediaProjection` 是 Android 的敏感授权，普通 App 不能真正静默授权；脚本只能在测试机上自动点击系统授权弹窗。如果 ROM 拦截，仍需要一次人工确认。
 - 如果测试机仍停在锁屏或通知遮罩，脚本会提示先解锁；安全锁屏不能由普通开发脚本绕过。
 
+开发设备保持亮屏：
+
+```bash
+./keep_device_awake.sh start
+./keep_device_awake.sh status
+./keep_device_awake.sh stop
+```
+
+说明：
+
+- 这个脚本只用于真机长时间测试，避免任务执行中途熄屏。
+- 脚本会设置较长的 `screen_off_timeout`，开启 `svc power stayon`，并定期发送 `KEYCODE_WAKEUP`。
+- 脚本不读取页面、不点击业务控件、不替 Agent 执行任务。
+- 如果有多台设备，先设置 `ANDROID_SERIAL=设备序列号`。
+
 回放最新 AgentTrace：
 
 ```bash

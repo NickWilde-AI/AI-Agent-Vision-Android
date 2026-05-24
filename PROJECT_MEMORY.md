@@ -89,6 +89,7 @@
 - 已增加无线部署辅助脚本：`deploy_device.sh`。
 - 已增加模型推送脚本：`push_gemma_model.sh`。
 - 已增加开发测试权限准备脚本：`dev_bootstrap_permissions.sh`。它只用于开启无障碍、设置调试 appops、尝试自动点击屏幕录制授权弹窗，不用于替 Agent 执行业务任务。
+- 已增加开发测试常亮脚本：`keep_device_awake.sh`。它只用于防止 Redmi K60 长时间测试时熄屏，不读取页面、不点击业务控件、不替 Agent 执行任务。
 
 ## 文档结构
 
@@ -201,6 +202,7 @@
   - 重新验证 `./gradlew :app:testDebugUnitTest :app:assembleDebug` 和 `./gradlew :app:lintDebug`，均通过。
   - 安装最新 Debug APK 到 Redmi K60，通过 `dev_bootstrap_permissions.sh` 开启无障碍并尝试处理屏幕录制授权；日志显示无障碍服务已重新连接。
   - 从真机日志确认 Redmi K60 的系统浏览器包名是 `com.android.browser`，已同步补充到 L1 路由、Planner、BrowserStrategy、ActionExecutor 和云端 Prompt。
+  - 新增并启动 `keep_device_awake.sh`，通过 `screen_off_timeout`、`svc power stayon` 和定期 `KEYCODE_WAKEUP` 保持开发测试机亮屏。
 
 ## 下一步自主任务
 
@@ -218,6 +220,7 @@
 
 - 产品能力必须由 Android App 内的 Agent 执行，不能依赖 ADB 代替用户点击、输入或完成业务流程。
 - ADB 只允许作为开发测试脚手架使用：安装 APK、启动 App、准备权限、抓日志、拉取 Trace。
+- `keep_device_awake.sh` 属于开发测试脚手架，只能用于防止测试机熄屏，不能用于替 Agent 完成业务动作。
 - 无障碍权限属于系统敏感授权，正式产品必须由用户主动开启；测试机上可以用 `dev_bootstrap_permissions.sh` 尝试通过 `settings put secure` 开启。
 - 屏幕录制权限基于 `MediaProjection`，普通 App 不能真正静默授权；测试脚本只能自动点击系统弹窗。如果 MIUI 拦截，仍可能需要一次人工确认。
 - 当前 Redmi K60 如果处于锁屏/通知遮罩，ADB 可以唤醒但不能可靠绕过安全锁屏；执行 UI 触发型 Agent 测试前，需要保证测试机已解锁。
