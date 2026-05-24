@@ -32,6 +32,7 @@ data class AgentPlan(
 enum class TaskType {
     OPEN_APP,
     DEVICE_CONTROL,
+    SYSTEM_NAVIGATION,
     WECHAT_DRAFT,
     BROWSER_SEARCH,
     APP_NAVIGATION,

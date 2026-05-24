@@ -11,6 +11,7 @@ import com.tencent.edgeagent.domain.agent.multi.AgentPlan
 import com.tencent.edgeagent.domain.agent.multi.AgentReflection
 import com.tencent.edgeagent.domain.agent.multi.PlannerAgent
 import com.tencent.edgeagent.domain.agent.multi.ReflectionAgent
+import com.tencent.edgeagent.domain.agent.multi.TaskType
 import com.tencent.edgeagent.domain.agent.safety.ActionGuard
 import com.tencent.edgeagent.domain.agent.safety.GuardResult
 import com.tencent.edgeagent.domain.agent.strategy.AppStrategyRegistry
@@ -52,6 +53,7 @@ class AgentExecutor private constructor() {
     private val strategyRegistry = AppStrategyRegistry.getInstance()
     
     companion object {
+        private const val VISION_AGENT_PACKAGE = "com.tencent.edgeagent"
         private const val MAX_ROUNDS = 16 // 最大对话轮数
         private const val SCREENSHOT_DELAY = 1000L // 截图延迟（等待界面加载）
         private const val OPEN_APP_DELAY = 2500L // 打开应用后的等待时间（让应用完全启动）
@@ -109,6 +111,32 @@ class AgentExecutor private constructor() {
             onProgress("[$currentRound/$maxRounds] 分析当前屏幕：${screenData.currentPackage ?: "未知包名"}")
             
             try {
+                if (isPlanAlreadyComplete(plan, screenData, conversationHistory)) {
+                    val response = AgentResponse(
+                        source = InferenceSource.STRATEGY,
+                        action = ActionType.NO_ACTION,
+                        actionParams = ActionParams.NoAction("目标已达成"),
+                        confidence = 1.0f,
+                        inferenceTimeMs = 0L,
+                        rawOutput = "strategy_plan_complete:${plan.taskType}",
+                        requiresConfirmation = false
+                    )
+                    onDecision(response)
+                    traceStore.recordStep(
+                        sessionId = traceId,
+                        round = currentRound,
+                        screenData = screenData,
+                        response = response,
+                        executionResult = ExecutionResult.Success("目标已达成"),
+                        reflection = null,
+                        note = "plan_complete_before_decision"
+                    )
+                    onProgress("[$currentRound/$maxRounds] 目标已达成")
+                    cleanupAfterCompletedPlan(traceId, currentRound + 1, plan, screenData, onProgress)
+                    isTaskComplete = true
+                    break
+                }
+
                 val reflection = reflectionAgent.reflect(conversationHistory, screenData)
                 if (reflection.shouldAbort) {
                     val reason = reflection.abortReason ?: "反思 Agent 停止任务"
@@ -376,9 +404,85 @@ class AgentExecutor private constructor() {
             userGoal.contains("淘宝") -> "com.taobao.taobao"
             userGoal.contains("抖音") -> "com.ss.android.ugc.aweme"
             userGoal.contains("QQ", ignoreCase = true) -> "com.tencent.mobileqq"
+            userGoal.contains("相机") || normalized.contains("camera") -> "com.android.camera"
             userGoal.contains("电话") || userGoal.contains("联系人") -> "com.android.contacts"
             userGoal.contains("设置") -> "com.android.settings"
+            userGoal.contains("浏览器") -> "com.android.browser"
+            normalized.contains("chrome") -> "com.android.chrome"
             else -> null
+        }
+    }
+
+    private fun isPlanAlreadyComplete(
+        plan: AgentPlan,
+        screenData: ScreenData,
+        history: List<ConversationTurn>
+    ): Boolean {
+        val targetPackage = plan.targetPackage ?: return false
+        if (plan.taskType != TaskType.OPEN_APP) return false
+        if (screenData.currentPackage != targetPackage) return false
+        return history.isEmpty() || history.any { turn ->
+            turn.llmResponse.action == ActionType.OPEN_APP &&
+                turn.executionResult is ExecutionResult.Success
+        }
+    }
+
+    private suspend fun cleanupAfterCompletedPlan(
+        traceId: String,
+        round: Int,
+        plan: AgentPlan,
+        screenData: ScreenData,
+        onProgress: (String) -> Unit
+    ) {
+        val targetPackage = plan.targetPackage ?: return
+        if (plan.taskType != TaskType.OPEN_APP) return
+        if (targetPackage == VISION_AGENT_PACKAGE) return
+        if (screenData.currentPackage != targetPackage) return
+
+        val response = AgentResponse(
+            source = InferenceSource.STRATEGY,
+            action = ActionType.BACK,
+            actionParams = ActionParams.NoAction("OPEN_APP 验证完成，返回 Agent 控制台"),
+            confidence = 1.0f,
+            inferenceTimeMs = 0L,
+            rawOutput = "strategy_cleanup_after_open_app:$targetPackage",
+            requiresConfirmation = false
+        )
+        onProgress("[$round] 打开成功，返回 Agent 控制台")
+        val result = actionExecutor.execute(response)
+        traceStore.recordStep(
+            sessionId = traceId,
+            round = round,
+            screenData = screenData,
+            response = response,
+            executionResult = result,
+            reflection = null,
+            note = "post_task_cleanup"
+        )
+        delay(700)
+
+        val afterPackage = captureScreen()?.currentPackage
+        if (afterPackage != VISION_AGENT_PACKAGE) {
+            Timber.w("[AgentTask] cleanup BACK did not return to Agent, package=$afterPackage")
+            val reopenAgent = AgentResponse(
+                source = InferenceSource.STRATEGY,
+                action = ActionType.OPEN_APP,
+                actionParams = ActionParams.OpenApp(packageName = VISION_AGENT_PACKAGE),
+                confidence = 1.0f,
+                inferenceTimeMs = 0L,
+                rawOutput = "strategy_reopen_agent_after_cleanup:$afterPackage",
+                requiresConfirmation = false
+            )
+            val reopenResult = actionExecutor.execute(reopenAgent)
+            traceStore.recordStep(
+                sessionId = traceId,
+                round = round + 1,
+                screenData = captureScreen() ?: screenData,
+                response = reopenAgent,
+                executionResult = reopenResult,
+                reflection = null,
+                note = "post_task_reopen_agent"
+            )
         }
     }
 
@@ -506,12 +610,13 @@ class AgentExecutor private constructor() {
         prompt.append("2. 优先使用 UI 树中的可见文本、contentDescription、viewId、bounds/center 来定位元素。\n")
         prompt.append("3. 当前已经在目标 App 内时，不要再 OPEN_APP；直接继续界面内操作。\n")
         prompt.append("4. 需要查找对象时，先找到搜索入口；搜索框获得焦点后，用 INPUT_TEXT 输入搜索关键词。\n")
-        prompt.append("5. 需要发送/提交内容时，先点击输入框，再 INPUT_TEXT 输入正文；只有安全模式允许时才点击最终发送/提交按钮。\n")
-        prompt.append("6. 如果没有看到目标元素，可以 WAIT、SWIPE、BACK 或点击合理的导航入口；不要连续重复同一无效动作。\n")
-        prompt.append("7. UI 树为空且没有真实截图时，不要根据空白图或想象判断当前页面；最多等待一轮，之后应 BACK 或使用可确定的系统导航恢复可操作状态。\n")
-        prompt.append("8. 如果规划要求草稿模式或用户确认，不要点击最终发送/支付/提交按钮；准备好后返回 NO_ACTION。\n")
-        prompt.append("9. 任务完成后返回 NO_ACTION。\n")
-        prompt.append("10. 每次只返回一个最小可执行操作，等待下一轮屏幕捕获验证。\n")
+        prompt.append("5. INPUT_TEXT 执行层会在输入后尝试收起键盘；如果键盘仍遮挡目标区域，下一轮可返回 BACK 收起。\n")
+        prompt.append("6. 需要发送/提交内容时，先点击输入框，再 INPUT_TEXT 输入正文；只有安全模式允许时才点击最终发送/提交按钮。\n")
+        prompt.append("7. 如果没有看到目标元素，可以 WAIT、SWIPE、BACK 或点击合理的导航入口；不要连续重复同一无效动作。\n")
+        prompt.append("8. UI 树为空且没有真实截图时，不要根据空白图或想象判断当前页面；最多等待一轮，之后应 BACK 或使用可确定的系统导航恢复可操作状态。\n")
+        prompt.append("9. 如果规划要求草稿模式或用户确认，不要点击最终发送/支付/提交按钮；准备好后返回 NO_ACTION。\n")
+        prompt.append("10. 任务完成后返回 NO_ACTION。\n")
+        prompt.append("11. 每次只返回一个最小可执行操作，等待下一轮屏幕捕获验证。\n")
 
         return prompt.toString()
     }

@@ -168,6 +168,13 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
         return gestureExecutor.performRecents()
     }
 
+    /**
+     * 尝试关闭系统通知遮罩，避免测试/执行时点击被 SystemUI 吞掉。
+     */
+    fun dismissNotificationShade(): Boolean {
+        return gestureExecutor.dismissNotificationShade()
+    }
+
     companion object {
         @Volatile
         private var instance: EdgeAgentAccessibilityService? = null

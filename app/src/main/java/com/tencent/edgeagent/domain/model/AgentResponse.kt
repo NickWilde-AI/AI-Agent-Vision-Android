@@ -49,6 +49,7 @@ data class AgentResponse(
 enum class InferenceSource {
     LOCAL_VLM,      // 本地多模态模型
     LOCAL_RAG,      // 本地 RAG 检索
+    STRATEGY,       // 策略改写（非模型推理）
     CLOUD_FALLBACK, // 云端兜底
     MOCK            // Mock 数据（开发阶段）
 }

@@ -29,6 +29,7 @@ class BrowserStrategy : AppStrategy {
     companion object {
         private val BROWSER_PACKAGES = setOf(
             "com.android.chrome",
+            "com.android.browser",
             "com.sec.android.app.sbrowser",
             "com.huawei.browser",
             "com.mi.globalbrowser",

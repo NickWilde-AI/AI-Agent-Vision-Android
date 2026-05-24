@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import timber.log.Timber
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -110,6 +111,19 @@ class GestureExecutor(private val accessibilityService: AccessibilityService) {
     fun performNotifications(): Boolean {
         Timber.d("执行通知栏")
         return accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+    }
+
+    /**
+     * 关闭通知栏（Android 12+ 支持）
+     */
+    fun dismissNotificationShade(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Timber.d("关闭通知栏")
+            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+        } else {
+            // 低版本没有专用 global action，回退为 BACK（多数 ROM 可关闭系统遮罩）
+            performBack()
+        }
     }
 
     /**

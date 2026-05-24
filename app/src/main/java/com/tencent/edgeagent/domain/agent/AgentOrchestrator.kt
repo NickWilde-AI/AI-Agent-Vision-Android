@@ -47,6 +47,9 @@ class AgentOrchestrator private constructor(
             Timber.i("[AgentFlow] start command=$userInput")
             onProgress("开始执行...")
 
+            // Best-effort: if SystemUI shade is covering the screen, close it before running.
+            EdgeAgentAccessibilityService.getInstance()?.dismissNotificationShade()
+
             stateMachine.handleEvent(AgentEvent.UserTriggered(userInput))
 
             val intent = intentRouter.parseIntent(userInput)

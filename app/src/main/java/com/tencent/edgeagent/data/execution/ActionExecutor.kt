@@ -1,6 +1,7 @@
 package com.tencent.edgeagent.data.execution
 
 import android.content.Context
+import android.view.accessibility.AccessibilityWindowInfo
 import com.tencent.edgeagent.domain.model.ActionParams
 import com.tencent.edgeagent.domain.model.ActionType
 import com.tencent.edgeagent.domain.model.AgentResponse
@@ -185,6 +186,7 @@ class ActionExecutor private constructor() {
 
                         if (success) {
                             Timber.d("ACTION_SET_TEXT 成功: ${params.text}")
+                            dismissKeyboardAfterInput(service, params)
                             return ExecutionResult.Success("输入文本成功: ${params.text}")
                         }
 
@@ -200,6 +202,7 @@ class ActionExecutor private constructor() {
                     // Step 3: 降级 — 剪贴板粘贴方案
                     val clipboardSuccess = pasteViaClipboard(service, params.text)
                     if (clipboardSuccess) {
+                        dismissKeyboardAfterInput(service, params)
                         ExecutionResult.Success("通过剪贴板输入文本: ${params.text}")
                     } else {
                         ExecutionResult.Failure("文本输入失败")
@@ -210,6 +213,31 @@ class ActionExecutor private constructor() {
                 }
             }
             else -> ExecutionResult.Failure("参数类型错误")
+        }
+    }
+
+    private suspend fun dismissKeyboardAfterInput(
+        service: EdgeAgentAccessibilityService,
+        params: ActionParams.InputText
+    ) {
+        kotlinx.coroutines.delay(250)
+        val shouldDismiss = isInputMethodVisible(service) ||
+            (params.targetX != null && params.targetY != null)
+        if (!shouldDismiss) return
+
+        val success = service.performBack()
+        Timber.i("[INPUT_TEXT] 输入后收起键盘: success=$success")
+        kotlinx.coroutines.delay(250)
+    }
+
+    private fun isInputMethodVisible(service: EdgeAgentAccessibilityService): Boolean {
+        return try {
+            service.windows.any { window ->
+                window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "[INPUT_TEXT] 检测键盘窗口失败")
+            false
         }
     }
 
@@ -469,6 +497,8 @@ class ActionExecutor private constructor() {
             "com.android.camera" -> "相机"
             "com.android.contacts" -> "电话"
             "com.android.settings" -> "设置"
+            "com.android.browser" -> "浏览器"
+            "com.android.chrome" -> "Chrome"
             else -> packageName.substringAfterLast('.')
         }
     }

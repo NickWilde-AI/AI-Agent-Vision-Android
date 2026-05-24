@@ -52,6 +52,9 @@ class AppStrategyRegistry private constructor(
             return instance ?: synchronized(this) {
                 instance ?: AppStrategyRegistry(
                     strategies = listOf(
+                        SystemNavigationStrategy(),
+                        DeviceControlStrategy(),
+                        OpenAppStrategy(),
                         WechatStrategy(),
                         SystemSettingsStrategy(),
                         BrowserStrategy()

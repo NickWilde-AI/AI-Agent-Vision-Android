@@ -8,8 +8,10 @@
 - Android 包名：`com.tencent.edgeagent`
 - 本地路径：`/Users/chenpeng/WorkSpace/文稿/Tencent/TencentCodeing/AI-Agent-Vision-Android`
 - GitHub 仓库：`https://github.com/NickWilde-AI/AI-Agent-Vision-Android.git`
+- 当前技术栈：Android 原生 Kotlin + XML 布局 + Gradle；Java 主要来自 Android/Gradle 运行环境，不是业务主体语言。
 - 产品方向：真正的 Android Agent / Agent OS 层，不再定位为大厂面试 Demo。
 - 核心形态：Android App 级 Agent，通过无障碍服务、屏幕截图、UI 树、RAG、App 专项策略、Trace 回放、本地模型和云端模型路由来完成手机自动化任务。
+- 语言选型结论：手机端常驻 Agent 核心不建议整体改 Python。Android 权限、无障碍、MediaProjection、后台服务、端侧推理引擎都更适合 Kotlin/Java 层实现；Python 更适合做离线评测、Trace 分析、RAG 数据构建和开发脚本。
 
 ## 用户偏好
 
@@ -59,15 +61,21 @@
   - Wi-Fi 设置、蓝牙设置、飞行模式设置。
   - 返回、Home、最近任务。
   - 打开相机、微信、美团、支付宝、淘宝、抖音、QQ、电话、设置、浏览器。
+  - Redmi K60 当前系统浏览器包名已确认为 `com.android.browser`；Chrome 单独映射到 `com.android.chrome`。
 - 微信发消息不再作为第一验收主线；微信属于 L3 App 专项任务，最终发送属于 L4 高风险动作。
 - 2026-05-24 后续决策：产品任务必须由 App 内 Agent / 模型优先决策。`L1CommandRouter` 只作为云端模型失败、本地模型不可用或不可观测状态下的低风险兜底，不再抢在模型前面执行任务。
 - `AgentExecutor` 中实现了多轮任务执行、规划、反思和执行校验基础链路。
 - `LocalRagEngine` 中实现了 RAG 策略记忆。
 - RAG 数据已支持本地 JSONL 持久化。
 - 已建立 App 专项策略注册机制：
+  - 打开 App 策略：OPEN_APP 任务仍停留在 VisionAgent 主界面时，把模型对本 App 输入框/按钮的点击改写为系统级 `OPEN_APP`。
+  - L1 设备控制策略：音量、亮度、Wi-Fi、蓝牙、飞行模式任务优先改写为 `DEVICE_CONTROL`。
+  - L1 系统导航策略：返回、Home、最近任务、关闭键盘优先改写为 `BACK`、`HOME`、`RECENTS`。
   - 微信草稿状态机。
   - 浏览器策略。
   - 系统设置策略。
+- `INPUT_TEXT` 执行成功后，会基于无障碍窗口状态尝试收起软键盘；如果模型点击了输入框导致键盘弹起，执行层会调用无障碍返回键关闭。
+- `OPEN_APP` 到达目标包名后会立即判定任务达成，避免模型继续重复点击；开发验收模式下会记录收尾动作并尝试返回 VisionAgent 控制台。
 - AgentTrace 已支持 JSONL 日志记录和最新会话回放。
 - `view_logs.sh --replay` 已支持可读化回放最新 Trace。
 - 已基于无障碍 UI 树摘要建立本地视觉抽象层。
@@ -182,11 +190,22 @@
     - `ActionExecutor` 执行 `OpenApp(packageName=com.android.camera)`。
     - AgentTrace 记录 `source=LOCAL_RAG`、`action=OPEN_APP`、`success=true`。
   - 随后根据产品原则再次调整：上述 L1 直接执行只保留为兜底路径，正常任务应由千问模型先做动作决策。
+  - 修复模型优先链路中 `打开相机` 卡住的问题：新增 `OpenAppStrategy`，当模型在 VisionAgent 主界面误点输入框/按钮时，策略层改写为 `OPEN_APP(targetPackage)`。
+  - 新增 `InferenceSource.STRATEGY`，用于区分“模型输出”和“策略改写”，避免把策略动作误记为 RAG 或云端模型。
+  - 新增 `DeviceControlStrategy` 和 `SystemNavigationStrategy`，让音量、亮度、Wi-Fi/蓝牙/飞行模式、返回、Home、最近任务、关闭键盘都走模型优先 + 策略校正链路。
+  - 修复输入后软键盘不关闭的问题：`ActionExecutor.executeInputText` 成功后会尝试通过无障碍返回键收起键盘。
+  - 修复 `OPEN_APP` 后任务不结束的问题：`AgentExecutor` 在观察到目标包名后直接记录 `NO_ACTION` 完成状态，并在开发验收模式下尝试返回 VisionAgent 控制台。
+  - 补齐相机、浏览器在 `AgentExecutor.resolveTargetPackage` 中的兜底包名，避免云端异常时无法回退。
+  - 阿里千问、DeepSeek、本地 Gemma 的 Prompt 已补充 `DEVICE_CONTROL` 参数格式和输入后收键盘规则。
+  - 新增 `OpenAppStrategyTest` 和 `L1StrategyTest`，覆盖打开 App、设备控制、系统导航策略改写。
+  - 重新验证 `./gradlew :app:testDebugUnitTest :app:assembleDebug` 和 `./gradlew :app:lintDebug`，均通过。
+  - 安装最新 Debug APK 到 Redmi K60，通过 `dev_bootstrap_permissions.sh` 开启无障碍并尝试处理屏幕录制授权；日志显示无障碍服务已重新连接。
+  - 从真机日志确认 Redmi K60 的系统浏览器包名是 `com.android.browser`，已同步补充到 L1 路由、Planner、BrowserStrategy、ActionExecutor 和云端 Prompt。
 
 ## 下一步自主任务
 
-1. 进行 L1 真机验收：调高音量、回到桌面、打开相机、打开 WiFi 设置、打开微信。
-2. 查看 L1 真机执行后的 AgentTrace，确认失败原因能直接从日志定位。
+1. 进行模型优先 L1 真机验收：调高音量、调低音量、回到桌面、最近任务、关闭键盘、打开相机、打开 WiFi 设置、打开微信。
+2. 查看模型优先 L1 真机执行后的 AgentTrace，确认每次策略改写、执行结果和失败原因都能直接从日志定位。
 3. 将本地模型健康检查结果写入 AgentTrace，形成可回放的模型运行诊断记录。
 4. 为 App 增加更明确的模型状态 UI：模型文件就绪、运行时已加载、推理成功、云端兜底中、本地失败原因。
 5. 保持 Qwen-VL-Max 作为复杂视觉、多轮页面理解和策略任务的云端主链路。

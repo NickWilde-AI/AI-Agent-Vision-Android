@@ -23,7 +23,13 @@ class PlannerAgent private constructor(
             taskType = taskType,
             targetPackage = targetPackage,
             safetyMode = safetyMode,
-            maxRounds = if (taskType == TaskType.WECHAT_DRAFT) 12 else 16,
+            maxRounds = when (taskType) {
+                TaskType.SYSTEM_NAVIGATION,
+                TaskType.DEVICE_CONTROL,
+                TaskType.OPEN_APP -> 6
+                TaskType.WECHAT_DRAFT -> 12
+                else -> 16
+            },
             localKnowledge = knowledge,
             constraints = constraints
         ).also {
@@ -36,6 +42,7 @@ class PlannerAgent private constructor(
         return when {
             targetPackage == "com.tencent.mm" &&
                 (goal.contains("发") || goal.contains("消息") || goal.contains("回复")) -> TaskType.WECHAT_DRAFT
+            isSystemNavigation(goal, normalized) -> TaskType.SYSTEM_NAVIGATION
             goal.contains("音量") || goal.contains("亮度") || normalized.contains("wifi") ||
                 goal.contains("蓝牙") || goal.contains("飞行模式") -> TaskType.DEVICE_CONTROL
             goal.contains("搜索") || normalized.contains("search") -> TaskType.BROWSER_SEARCH
@@ -65,7 +72,30 @@ class PlannerAgent private constructor(
         if (taskType == TaskType.WECHAT_DRAFT) {
             constraints += "微信任务只允许输入草稿；草稿完成后返回 NO_ACTION 等待用户手动发送。"
         }
+        if (taskType == TaskType.SYSTEM_NAVIGATION) {
+            constraints += "系统导航任务应直接返回 BACK、HOME 或 RECENTS，不要点击当前 App 的输入框。"
+        }
+        if (taskType == TaskType.DEVICE_CONTROL) {
+            constraints += "设备控制任务应优先返回 DEVICE_CONTROL，不要点击当前 App 的按钮或输入框。"
+        }
         return constraints
+    }
+
+    private fun isSystemNavigation(goal: String, normalized: String): Boolean {
+        return goal == "返回" ||
+            goal.contains("返回上一页") ||
+            goal.contains("后退") ||
+            goal.contains("回到桌面") ||
+            goal.contains("回桌面") ||
+            goal.contains("主屏幕") ||
+            goal.contains("最近任务") ||
+            goal.contains("多任务") ||
+            goal.contains("后台应用") ||
+            goal.contains("关闭键盘") ||
+            goal.contains("收起键盘") ||
+            normalized == "back" ||
+            normalized == "home" ||
+            normalized.contains("recents")
     }
 
     private fun resolveTargetPackage(goal: String): String? {
@@ -80,7 +110,8 @@ class PlannerAgent private constructor(
             goal.contains("相机") || normalized.contains("camera") -> "com.android.camera"
             goal.contains("电话") || goal.contains("联系人") -> "com.android.contacts"
             goal.contains("设置") -> "com.android.settings"
-            normalized.contains("chrome") || goal.contains("浏览器") -> "com.android.chrome"
+            goal.contains("浏览器") -> "com.android.browser"
+            normalized.contains("chrome") -> "com.android.chrome"
             else -> null
         }
     }

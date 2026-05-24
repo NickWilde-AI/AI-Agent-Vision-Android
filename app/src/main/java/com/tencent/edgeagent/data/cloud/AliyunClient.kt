@@ -124,6 +124,7 @@ class AliyunClient(
 - SWIPE: 滑动翻页或滚动
 - INPUT_TEXT: 向当前输入框或指定坐标输入文本
 - OPEN_APP: 打开应用。执行层会优先走无障碍路径：HOME → 查找图标 → 点击。
+- DEVICE_CONTROL: 设备控制（音量、亮度、Wi-Fi、蓝牙、飞行模式）
 - BACK: 返回
 - HOME: 回到主屏幕
 - RECENTS: 打开最近任务/后台应用列表
@@ -138,7 +139,10 @@ class AliyunClient(
 - 抖音: com.ss.android.ugc.aweme
 - QQ: com.tencent.mobileqq
 - 电话/联系人: com.android.contacts
+- 相机: com.android.camera
 - 设置: com.android.settings
+- 浏览器: com.android.browser
+- Chrome: com.android.chrome
 
 返回 JSON 格式：
 {
@@ -158,8 +162,9 @@ class AliyunClient(
 3. SWIPE: {"startX": 540, "startY": 1800, "endX": 540, "endY": 600, "durationMs": 400}
 4. INPUT_TEXT: {"text": "你好", "targetX": 540, "targetY": 2100}
 5. OPEN_APP: {"packageName": "com.tencent.mm", "appName": "微信"}
-6. BACK/HOME/RECENTS/NO_ACTION: {"message": "原因"}
-7. WAIT: {"durationMs": 1000}
+6. DEVICE_CONTROL: {"controlType": "VOLUME_UP", "value": "1"}，controlType 可选 VOLUME_UP/VOLUME_DOWN/BRIGHTNESS_UP/BRIGHTNESS_DOWN/WIFI_TOGGLE/BLUETOOTH_TOGGLE/AIRPLANE_MODE_TOGGLE
+7. BACK/HOME/RECENTS/NO_ACTION: {"message": "原因"}
+8. WAIT: {"durationMs": 1000}
 
 决策规则：
 1. 如果目标元素出现在 Clickable Elements 中，直接使用对应 center 坐标 CLICK。
@@ -167,9 +172,11 @@ class AliyunClient(
 3. 如果要找联系人、商品、店铺、搜索框，优先点击搜索入口，然后 INPUT_TEXT。
 4. 如果当前在目标 App 内，不要再 OPEN_APP；继续执行 App 内步骤。
 5. 如果当前不在目标 App，第一步可以 OPEN_APP。执行层会用无障碍方式打开。
-6. 如果屏幕没有目标元素，可 SWIPE 或 BACK；不要重复同一个无效动作。
-7. 如果连续历史动作显示失败，要换一种路径，比如 HOME 后重试、点击搜索入口、或返回上一级。
-8. 所有坐标必须来自 UI 树 bounds/center 或在屏幕范围内。
+6. 如果用户要求调音量、调亮度、打开 Wi-Fi/蓝牙/飞行模式设置，优先返回 DEVICE_CONTROL。
+7. INPUT_TEXT 执行层会在输入后尝试收起键盘；如果键盘仍遮挡目标区域，下一轮可返回 BACK 收起。
+8. 如果屏幕没有目标元素，可 SWIPE 或 BACK；不要重复同一个无效动作。
+9. 如果连续历史动作显示失败，要换一种路径，比如 HOME 后重试、点击搜索入口、或返回上一级。
+10. 所有坐标必须来自 UI 树 bounds/center 或在屏幕范围内。
         """.trimIndent()
     }
 
@@ -423,10 +430,6 @@ class AliyunClient(
                     y = paramsJson.optInt("y", 1200),
                     durationMs = paramsJson.optLong("durationMs", 1000)
                 )
-            }
-            
-            else -> {
-                ActionParams.NoAction(message = "不支持的操作类型")
             }
         }
     }

@@ -146,11 +146,14 @@ class GemmaLiteRtModelEngine private constructor(
             SWIPE: {"startX": 540, "startY": 1700, "endX": 540, "endY": 700, "durationMs": 300}
             INPUT_TEXT: {"text": "content", "targetX": 540, "targetY": 2000}
             OPEN_APP: {"packageName": "com.android.settings"}
+            DEVICE_CONTROL: {"controlType": "VOLUME_UP", "value": "1"}
             WAIT: {"durationMs": 1000}
             NO_ACTION: {"message": "reason"}
 
             Safety rules:
             - If the requested action may send money, publish content, delete data, or send a final message, return NO_ACTION unless the user explicitly asks for a draft-only step.
+            - Prefer DEVICE_CONTROL for volume, brightness, Wi-Fi, Bluetooth, and airplane-mode requests.
+            - INPUT_TEXT execution will try to dismiss the keyboard after typing; use BACK next if the keyboard still blocks the target.
             - Prefer WAIT or NO_ACTION when the UI tree is missing or ambiguous.
             - Coordinates must stay inside screen ${image.width}x${image.height}.
 

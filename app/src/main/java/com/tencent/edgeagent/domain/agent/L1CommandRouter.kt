@@ -71,6 +71,8 @@ class L1CommandRouter private constructor() {
             text == "返回" ||
                 text.contains("返回上一页") ||
                 text.contains("后退") ||
+                text.contains("关闭键盘") ||
+                text.contains("收起键盘") ||
                 normalized == "back" -> {
                 response(
                     action = ActionType.BACK,
@@ -119,7 +121,8 @@ class L1CommandRouter private constructor() {
             text.contains("QQ", ignoreCase = true) -> "com.tencent.mobileqq"
             text.contains("电话") || text.contains("联系人") -> "com.android.contacts"
             text.contains("设置") -> "com.android.settings"
-            text.contains("浏览器") || normalized.contains("chrome") -> "com.android.chrome"
+            text.contains("浏览器") -> "com.android.browser"
+            normalized.contains("chrome") -> "com.android.chrome"
             else -> null
         } ?: return null
 

@@ -53,6 +53,24 @@ class L1CommandRouterTest {
     }
 
     @Test
+    fun resolve_mapsCloseKeyboardToBackAction() {
+        val response = router.resolve("关闭键盘")
+
+        assertNotNull(response)
+        assertEquals(ActionType.BACK, response?.action)
+    }
+
+    @Test
+    fun resolve_mapsMiuiBrowserToBrowserPackage() {
+        val response = router.resolve("打开浏览器")
+
+        assertNotNull(response)
+        assertEquals(ActionType.OPEN_APP, response?.action)
+        val params = response?.actionParams as ActionParams.OpenApp
+        assertEquals("com.android.browser", params.packageName)
+    }
+
+    @Test
     fun resolve_doesNotTakeOverWechatMessageTask() {
         val response = router.resolve("打开微信给 Nick 发送消息：你好")
 
