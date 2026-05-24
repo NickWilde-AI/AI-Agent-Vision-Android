@@ -126,6 +126,7 @@ adb logcat | grep -E "AgentTask|PlannerAgent|ReflectionAgent|ActionGuard|ActionE
 
 - 这个脚本只用于真机长时间测试，避免任务执行中途熄屏。
 - 脚本会设置较长的 `screen_off_timeout`，开启 `svc power stayon`，并定期发送 `KEYCODE_WAKEUP`。
+- macOS 上 `start` 会优先使用 `launchctl` 托管，避免普通后台进程被终端会话回收。
 - 脚本不读取页面、不点击业务控件、不替 Agent 执行任务。
 - 如果有多台设备，先设置 `ANDROID_SERIAL=设备序列号`。
 

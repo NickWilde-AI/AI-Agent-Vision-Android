@@ -18,6 +18,10 @@ if [ -n "${ANDROID_SERIAL:-}" ]; then
   SERIAL_LABEL="$(echo "$ANDROID_SERIAL" | tr -c 'A-Za-z0-9_.-' '_')"
 fi
 
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+LAUNCH_LABEL="com.visionagent.keep-device-awake.${SERIAL_LABEL}"
+LAUNCH_DOMAIN="gui/$(id -u)"
+PLIST_FILE="${TMPDIR:-/tmp}/${LAUNCH_LABEL}.plist"
 PID_FILE="${TMPDIR:-/tmp}/visionagent_keep_device_awake_${SERIAL_LABEL}.pid"
 LOG_FILE="${TMPDIR:-/tmp}/visionagent_keep_device_awake_${SERIAL_LABEL}.log"
 
@@ -50,7 +54,53 @@ EOF
 }
 
 is_running() {
+  if use_launchctl; then
+    launchctl print "$LAUNCH_DOMAIN/$LAUNCH_LABEL" >/dev/null 2>&1
+    return $?
+  fi
   [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" >/dev/null 2>&1
+}
+
+use_launchctl() {
+  [ "$(uname -s)" = "Darwin" ] && command -v launchctl >/dev/null 2>&1
+}
+
+write_launchd_plist() {
+  cat > "$PLIST_FILE" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$LAUNCH_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$SCRIPT_PATH</string>
+    <string>foreground</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ADB_BIN</key>
+    <string>$ADB_BIN</string>
+    <key>ANDROID_SERIAL</key>
+    <string>${ANDROID_SERIAL:-}</string>
+    <key>WAKE_INTERVAL_SECONDS</key>
+    <string>$WAKE_INTERVAL_SECONDS</string>
+    <key>SCREEN_OFF_TIMEOUT_MS</key>
+    <string>$SCREEN_OFF_TIMEOUT_MS</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$LOG_FILE</string>
+  <key>StandardErrorPath</key>
+  <string>$LOG_FILE</string>
+</dict>
+</plist>
+EOF
 }
 
 apply_awake_settings() {
@@ -66,16 +116,32 @@ run_foreground() {
   echo $$ > "$PID_FILE"
   trap 'rm -f "$PID_FILE"; exit 0' INT TERM EXIT
 
+  set +e
+  local tick=0
   echo "[$(date '+%F %T')] keep awake foreground started"
   while true; do
     apply_awake_settings
+    tick=$((tick + 1))
+    if [ $((tick % 10)) -eq 0 ]; then
+      echo "[$(date '+%F %T')] keep awake heartbeat tick=$tick"
+    fi
     sleep "$WAKE_INTERVAL_SECONDS"
   done
 }
 
 start() {
   if is_running; then
-    echo "keep_device_awake already running: pid=$(cat "$PID_FILE")"
+    echo "keep_device_awake already running"
+    echo "log: $LOG_FILE"
+    return 0
+  fi
+
+  if use_launchctl; then
+    write_launchd_plist
+    launchctl bootout "$LAUNCH_DOMAIN" "$PLIST_FILE" >/dev/null 2>&1 || true
+    launchctl bootstrap "$LAUNCH_DOMAIN" "$PLIST_FILE"
+    launchctl kickstart -k "$LAUNCH_DOMAIN/$LAUNCH_LABEL" >/dev/null 2>&1 || true
+    echo "keep_device_awake started by launchctl: $LAUNCH_LABEL"
     echo "log: $LOG_FILE"
     return 0
   fi
@@ -99,6 +165,14 @@ start() {
 }
 
 stop() {
+  if use_launchctl; then
+    launchctl bootout "$LAUNCH_DOMAIN" "$PLIST_FILE" >/dev/null 2>&1 || \
+      launchctl bootout "$LAUNCH_DOMAIN/$LAUNCH_LABEL" >/dev/null 2>&1 || true
+    rm -f "$PID_FILE"
+    echo "keep_device_awake stopped: $LAUNCH_LABEL"
+    return 0
+  fi
+
   if ! is_running; then
     rm -f "$PID_FILE"
     echo "keep_device_awake is not running"
@@ -114,7 +188,12 @@ stop() {
 
 status() {
   if is_running; then
-    echo "running: pid=$(cat "$PID_FILE")"
+    if use_launchctl; then
+      echo "running: $LAUNCH_LABEL"
+      launchctl print "$LAUNCH_DOMAIN/$LAUNCH_LABEL" 2>/dev/null | grep -E "pid =|state =" || true
+    else
+      echo "running: pid=$(cat "$PID_FILE")"
+    fi
     echo "log: $LOG_FILE"
   else
     echo "not running"

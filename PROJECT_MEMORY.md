@@ -202,7 +202,7 @@
   - 重新验证 `./gradlew :app:testDebugUnitTest :app:assembleDebug` 和 `./gradlew :app:lintDebug`，均通过。
   - 安装最新 Debug APK 到 Redmi K60，通过 `dev_bootstrap_permissions.sh` 开启无障碍并尝试处理屏幕录制授权；日志显示无障碍服务已重新连接。
   - 从真机日志确认 Redmi K60 的系统浏览器包名是 `com.android.browser`，已同步补充到 L1 路由、Planner、BrowserStrategy、ActionExecutor 和云端 Prompt。
-  - 新增并启动 `keep_device_awake.sh`，通过 `screen_off_timeout`、`svc power stayon` 和定期 `KEYCODE_WAKEUP` 保持开发测试机亮屏。
+  - 新增并启动 `keep_device_awake.sh`，通过 `screen_off_timeout`、`svc power stayon` 和定期 `KEYCODE_WAKEUP` 保持开发测试机亮屏。macOS 下脚本使用 `launchctl` 托管，避免普通后台进程被终端会话回收。
 
 ## 下一步自主任务
 
