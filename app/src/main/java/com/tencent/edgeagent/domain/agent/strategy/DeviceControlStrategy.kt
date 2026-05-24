@@ -1,6 +1,7 @@
 package com.tencent.edgeagent.domain.agent.strategy
 
 import com.tencent.edgeagent.domain.agent.ConversationTurn
+import com.tencent.edgeagent.domain.agent.L1CommandRouter
 import com.tencent.edgeagent.domain.agent.multi.AgentPlan
 import com.tencent.edgeagent.domain.agent.multi.TaskType
 import com.tencent.edgeagent.domain.model.ActionParams
@@ -25,7 +26,7 @@ class DeviceControlStrategy : AppStrategy {
         val controlType = resolveControlType(plan.goal)?.name ?: "UNKNOWN"
         return listOf(
             "当前是设备控制任务，优先返回 DEVICE_CONTROL(controlType=$controlType)，不要点击 VisionAgent 的输入框或按钮。",
-            "音量和亮度属于低风险 L1，可直接执行；Wi-Fi、蓝牙、飞行模式只能打开对应设置页或等待用户确认。"
+            "L1 只处理低风险系统控制和设置入口；具体配对、选择时区、选择壁纸等多步骤目标应进入 L2 页面状态机。"
         )
     }
 
@@ -55,6 +56,10 @@ class DeviceControlStrategy : AppStrategy {
     }
 
     private fun resolveControlType(goal: String): DeviceControlType? {
+        val l1Response = L1CommandRouter.getInstance().resolve(goal)
+        val l1Params = l1Response?.actionParams as? ActionParams.DeviceControl
+        if (l1Params != null) return l1Params.controlType
+
         val normalized = goal.lowercase()
         return when {
             goal.contains("音量") || normalized.contains("volume") -> {
@@ -80,4 +85,3 @@ class DeviceControlStrategy : AppStrategy {
         }
     }
 }
-

@@ -147,12 +147,22 @@ class GemmaLiteRtModelEngine private constructor(
             INPUT_TEXT: {"text": "content", "targetX": 540, "targetY": 2000}
             OPEN_APP: {"packageName": "com.android.settings"}
             DEVICE_CONTROL: {"controlType": "VOLUME_UP", "value": "1"}
+            DEVICE_CONTROL common controlType values:
+            VOLUME_UP, VOLUME_DOWN, VOLUME_MUTE, VOLUME_UNMUTE,
+            MEDIA_PLAY_PAUSE, MEDIA_NEXT, MEDIA_PREVIOUS,
+            BRIGHTNESS_UP, BRIGHTNESS_DOWN, WIFI_SETTINGS, BLUETOOTH_SETTINGS,
+            AIRPLANE_MODE_SETTINGS, DISPLAY_SETTINGS, SOUND_SETTINGS,
+            NOTIFICATION_SETTINGS, DATE_TIME_SETTINGS, LANGUAGE_SETTINGS,
+            WALLPAPER_SETTINGS, ACCESSIBILITY_SETTINGS, APP_SETTINGS,
+            BATTERY_SETTINGS, STORAGE_SETTINGS, LOCATION_SETTINGS,
+            NOTIFICATIONS_SHADE, QUICK_SETTINGS, DISMISS_SYSTEM_SHADE,
+            LOCK_SCREEN, POWER_DIALOG, SPLIT_SCREEN
             WAIT: {"durationMs": 1000}
             NO_ACTION: {"message": "reason"}
 
             Safety rules:
             - If the requested action may send money, publish content, delete data, or send a final message, return NO_ACTION unless the user explicitly asks for a draft-only step.
-            - Prefer DEVICE_CONTROL for volume, brightness, Wi-Fi, Bluetooth, and airplane-mode requests.
+            - Prefer DEVICE_CONTROL for low-risk system controls and settings-entry requests.
             - INPUT_TEXT execution will try to dismiss the keyboard after typing; use BACK next if the keyboard still blocks the target.
             - Prefer WAIT or NO_ACTION when the UI tree is missing or ambiguous.
             - Coordinates must stay inside screen ${image.width}x${image.height}.

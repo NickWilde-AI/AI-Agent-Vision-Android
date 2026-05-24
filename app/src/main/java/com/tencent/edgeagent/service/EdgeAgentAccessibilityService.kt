@@ -168,11 +168,31 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
         return gestureExecutor.performRecents()
     }
 
+    fun performNotifications(): Boolean {
+        return gestureExecutor.performNotifications()
+    }
+
+    fun performQuickSettings(): Boolean {
+        return gestureExecutor.performQuickSettings()
+    }
+
     /**
      * 尝试关闭系统通知遮罩，避免测试/执行时点击被 SystemUI 吞掉。
      */
     fun dismissNotificationShade(): Boolean {
         return gestureExecutor.dismissNotificationShade()
+    }
+
+    fun performLockScreen(): Boolean {
+        return gestureExecutor.performLockScreen()
+    }
+
+    fun performPowerDialog(): Boolean {
+        return gestureExecutor.performPowerDialog()
+    }
+
+    fun performSplitScreen(): Boolean {
+        return gestureExecutor.performSplitScreen()
     }
 
     companion object {

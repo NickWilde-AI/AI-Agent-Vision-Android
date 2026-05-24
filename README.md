@@ -28,7 +28,7 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
 - **结构化 UI 树** 提供可解释的页面状态。
 - **Gemma 4 E2B + LiteRT-LM** 提供 Android 本地模型推理能力。
 - **Qwen-VL-Max** 提供云端视觉模型兜底。
-- **L1 安全兜底策略** 在模型失败时处理调音量、打开相机、Wi-Fi 设置等低风险任务。
+- **L1 基础能力策略** 覆盖系统导航、音量亮度、通知栏、快捷设置、常见设置入口和常见 App 启动。
 - **Local RAG** 注入本地策略、安全约束和失败经验。
 - **Planner / Reflection / ActionGuard** 组成多 Agent 决策链路。
 - **AgentTrace** 记录失败日志和回放材料。
@@ -46,7 +46,7 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 无障碍执行 | 已接入 | 点击、长按、滑动、返回、Home、最近任务、文本输入、打开 App |
-| L1 兜底任务 | 已接入 | 调音量、亮度、Home、最近任务、相机、Wi-Fi 设置、常见 App 启动 |
+| L1 基础能力 | 已扩展 | 系统导航、音量亮度、媒体控制、通知栏、快捷设置、常见设置入口、常见 App 启动 |
 | 屏幕感知 | 已接入 | 截图、UI 树、结构化 `UiNode` |
 | 本地模型 | 已跑通 | Gemma 4 E2B + LiteRT-LM，真机健康检查成功 |
 | 云端视觉 | 已接入 | 默认阿里云百炼 `qwen-vl-max` |
@@ -203,13 +203,14 @@ inferenceTimeMs=18983
 
 ## 文档导航
 
-当前保留 6 个长期维护入口：
+当前保留 7 个长期维护入口：
 
 | 文档 | 说明 |
 | --- | --- |
 | [README.md](README.md) | 项目门面、能力概览、快速开始 |
 | [PROJECT_MEMORY.md](PROJECT_MEMORY.md) | 项目长期记忆、设备状态、当前任务线 |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | 产品定位、用户场景、版本规划、能力边界 |
+| [docs/L1_CAPABILITIES.md](docs/L1_CAPABILITIES.md) | L1 基础能力清单、边界和 L2 入口 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 当前真实架构、模块职责、主流程 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发运行手册、API 示例、调试命令、AI 协作上下文 |
 | [docs/HISTORY.md](docs/HISTORY.md) | Phase 1-5 历史记录和演进说明 |
@@ -218,8 +219,8 @@ inferenceTimeMs=18983
 
 ## 当前优先级
 
-1. 完成 L1 真机验收：调音量、Home、打开相机、打开 Wi-Fi 设置、打开常见 App。
-2. 保持阿里千问作为云端主链路，打通 L2/L3 多轮任务。
+1. 完成扩展 L1 真机验收：系统导航、通知栏、音量亮度、媒体控制、常见设置入口、常见 App。
+2. 以系统设置 App 为 L2 样板，推进时区、蓝牙、声音与触感、壁纸等多步骤任务。
 3. 将本地模型健康检查和 L1 执行结果写入 AgentTrace。
 4. 继续强化微信草稿状态机，确保不自动点击最终发送。
 5. 扩展 App 专项策略库，优先覆盖浏览器、系统设置、美团、电话、微信。

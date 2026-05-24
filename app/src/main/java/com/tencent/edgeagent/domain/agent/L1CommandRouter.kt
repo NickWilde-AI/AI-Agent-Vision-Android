@@ -30,36 +30,80 @@ class L1CommandRouter private constructor() {
     private fun resolveDeviceControl(text: String, normalized: String): AgentResponse? {
         return when {
             text.contains("音量") || normalized.contains("volume") -> {
-                val controlType = if (isDecrease(text, normalized)) {
-                    DeviceControlType.VOLUME_DOWN
-                } else {
-                    DeviceControlType.VOLUME_UP
+                val controlType = when {
+                    text.contains("取消静音") || normalized.contains("unmute") -> DeviceControlType.VOLUME_UNMUTE
+                    text.contains("静音") || normalized.contains("mute") -> DeviceControlType.VOLUME_MUTE
+                    isDecrease(text, normalized) -> DeviceControlType.VOLUME_DOWN
+                    else -> DeviceControlType.VOLUME_UP
                 }
                 deviceControl(controlType, text)
             }
 
+            text.contains("播放") || text.contains("暂停") || normalized.contains("play") || normalized.contains("pause") -> {
+                deviceControl(DeviceControlType.MEDIA_PLAY_PAUSE, text)
+            }
+
+            text.contains("下一首") || text.contains("下一曲") || normalized.contains("next track") -> {
+                deviceControl(DeviceControlType.MEDIA_NEXT, text)
+            }
+
+            text.contains("上一首") || text.contains("上一曲") || normalized.contains("previous track") -> {
+                deviceControl(DeviceControlType.MEDIA_PREVIOUS, text)
+            }
+
             text.contains("亮度") || normalized.contains("brightness") -> {
-                val controlType = if (isDecrease(text, normalized)) {
-                    DeviceControlType.BRIGHTNESS_DOWN
-                } else {
-                    DeviceControlType.BRIGHTNESS_UP
+                val controlType = when {
+                    text.contains("设置") || text.contains("页面") -> DeviceControlType.DISPLAY_SETTINGS
+                    isDecrease(text, normalized) -> DeviceControlType.BRIGHTNESS_DOWN
+                    else -> DeviceControlType.BRIGHTNESS_UP
                 }
                 deviceControl(controlType, text)
+            }
+
+            text.contains("关闭通知栏") ||
+                text.contains("收起通知栏") ||
+                text.contains("关闭控制中心") ||
+                text.contains("收起控制中心") -> {
+                deviceControl(DeviceControlType.DISMISS_SYSTEM_SHADE, text)
+            }
+
+            text.contains("通知栏") || text.contains("下拉通知") -> {
+                deviceControl(DeviceControlType.NOTIFICATIONS_SHADE, text)
+            }
+
+            text.contains("快捷设置") || text.contains("控制中心") -> {
+                deviceControl(DeviceControlType.QUICK_SETTINGS, text)
+            }
+
+            text.contains("锁屏") || normalized.contains("lock screen") -> {
+                deviceControl(DeviceControlType.LOCK_SCREEN, text)
+            }
+
+            text.contains("电源菜单") || normalized.contains("power menu") -> {
+                deviceControl(DeviceControlType.POWER_DIALOG, text)
+            }
+
+            text.contains("分屏") || normalized.contains("split screen") -> {
+                deviceControl(DeviceControlType.SPLIT_SCREEN, text)
             }
 
             normalized.contains("wifi") ||
                 normalized.contains("wi-fi") ||
                 text.contains("无线网络") ||
                 text.contains("WLAN", ignoreCase = true) -> {
-                deviceControl(DeviceControlType.WIFI_TOGGLE, text)
+                deviceControl(DeviceControlType.WIFI_SETTINGS, text)
             }
 
             text.contains("蓝牙") || normalized.contains("bluetooth") -> {
-                deviceControl(DeviceControlType.BLUETOOTH_TOGGLE, text)
+                deviceControl(DeviceControlType.BLUETOOTH_SETTINGS, text)
             }
 
             text.contains("飞行模式") || normalized.contains("airplane") -> {
-                deviceControl(DeviceControlType.AIRPLANE_MODE_TOGGLE, text)
+                deviceControl(DeviceControlType.AIRPLANE_MODE_SETTINGS, text)
+            }
+
+            isSettingsEntryIntent(text, normalized) -> {
+                resolveSettingsEntry(text, normalized)?.let { deviceControl(it, text) }
             }
 
             else -> null
@@ -161,6 +205,42 @@ class L1CommandRouter private constructor() {
         val decreaseWords = listOf("调低", "降低", "减小", "小一点", "下调", "down", "lower", "reduce")
         return decreaseWords.any { word ->
             text.contains(word, ignoreCase = true) || normalized.contains(word)
+        }
+    }
+
+    private fun isSettingsEntryIntent(text: String, normalized: String): Boolean {
+        val entryWords = listOf("打开", "进入", "去", "查看", "管理", "页面")
+        val hasEntryIntent = entryWords.any { text.contains(it) } ||
+            normalized.startsWith("open ") ||
+            normalized.contains("settings")
+        if (!hasEntryIntent) return false
+
+        val l2MutationWords = listOf("改为", "改成", "设为", "设置为", "换成", "选择", "配对", "连接到", "添加")
+        return l2MutationWords.none { text.contains(it) }
+    }
+
+    private fun resolveSettingsEntry(text: String, normalized: String): DeviceControlType? {
+        return when {
+            text.contains("显示") || text.contains("屏幕") -> DeviceControlType.DISPLAY_SETTINGS
+            text.contains("声音与触感") || text.contains("声音") || text.contains("振动") -> DeviceControlType.SOUND_SETTINGS
+            text.contains("通知") -> DeviceControlType.NOTIFICATION_SETTINGS
+            text.contains("网络") -> DeviceControlType.NETWORK_SETTINGS
+            text.contains("移动网络") || text.contains("蜂窝") || text.contains("流量") -> DeviceControlType.MOBILE_NETWORK_SETTINGS
+            text.contains("热点") -> DeviceControlType.HOTSPOT_SETTINGS
+            text.contains("NFC", ignoreCase = true) -> DeviceControlType.NFC_SETTINGS
+            text.contains("VPN", ignoreCase = true) -> DeviceControlType.VPN_SETTINGS
+            text.contains("定位") || text.contains("位置") || normalized.contains("location") -> DeviceControlType.LOCATION_SETTINGS
+            text.contains("日期") || text.contains("时间") || text.contains("时区") -> DeviceControlType.DATE_TIME_SETTINGS
+            text.contains("语言") || normalized.contains("language") -> DeviceControlType.LANGUAGE_SETTINGS
+            text.contains("壁纸") || normalized.contains("wallpaper") -> DeviceControlType.WALLPAPER_SETTINGS
+            text.contains("无障碍") || normalized.contains("accessibility") -> DeviceControlType.ACCESSIBILITY_SETTINGS
+            text.contains("应用管理") || text.contains("应用设置") -> DeviceControlType.APP_SETTINGS
+            text.contains("电池") || text.contains("省电") || normalized.contains("battery") -> DeviceControlType.BATTERY_SETTINGS
+            text.contains("存储") || text.contains("储存") || text.contains("空间") || normalized.contains("storage") -> DeviceControlType.STORAGE_SETTINGS
+            text.contains("隐私") || normalized.contains("privacy") -> DeviceControlType.PRIVACY_SETTINGS
+            text.contains("安全") || normalized.contains("security") -> DeviceControlType.SECURITY_SETTINGS
+            text.contains("勿扰") || text.contains("免打扰") || normalized.contains("do not disturb") -> DeviceControlType.DO_NOT_DISTURB_SETTINGS
+            else -> null
         }
     }
 

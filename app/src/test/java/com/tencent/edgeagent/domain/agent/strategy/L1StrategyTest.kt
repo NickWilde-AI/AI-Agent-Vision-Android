@@ -47,6 +47,29 @@ class L1StrategyTest {
     }
 
     @Test
+    fun deviceControlStrategy_rewritesSettingsEntryToDeviceControl() {
+        val plan = AgentPlan(
+            goal = "打开声音与触感设置",
+            taskType = TaskType.DEVICE_CONTROL,
+            targetPackage = null,
+            safetyMode = SafetyMode.AUTO,
+            maxRounds = 6,
+            localKnowledge = "",
+            constraints = emptyList()
+        )
+
+        val rewrite = DeviceControlStrategy().rewriteResponse(plan, screenData(), emptyList(), clickResponse())
+        assertTrue(rewrite is StrategyRewrite.Rewritten)
+
+        val rewritten = (rewrite as StrategyRewrite.Rewritten).response
+        assertEquals(ActionType.DEVICE_CONTROL, rewritten.action)
+        assertEquals(
+            ActionParams.DeviceControl(DeviceControlType.SOUND_SETTINGS, "1"),
+            rewritten.actionParams
+        )
+    }
+
+    @Test
     fun systemNavigationStrategy_rewritesClickToBackForKeyboard() {
         val plan = AgentPlan(
             goal = "关闭键盘",
@@ -89,4 +112,3 @@ class L1StrategyTest {
         )
     }
 }
-

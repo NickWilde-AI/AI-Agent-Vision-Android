@@ -134,6 +134,31 @@ class GestureExecutor(private val accessibilityService: AccessibilityService) {
         return accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
     }
 
+    fun performLockScreen(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Timber.d("执行锁屏")
+            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+        } else {
+            Timber.w("当前 Android 版本不支持无障碍锁屏")
+            false
+        }
+    }
+
+    fun performPowerDialog(): Boolean {
+        Timber.d("执行电源菜单")
+        return accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
+    }
+
+    fun performSplitScreen(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Timber.d("执行分屏")
+            accessibilityService.performGlobalAction(AccessibilityService.GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN)
+        } else {
+            Timber.w("当前 Android 版本不支持无障碍分屏")
+            false
+        }
+    }
+
     /**
      * 分发手势（协程版本）
      */

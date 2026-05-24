@@ -1,6 +1,11 @@
 package com.tencent.edgeagent.data.execution
 
 import android.content.Context
+import android.content.Intent
+import android.media.AudioManager
+import android.os.Build
+import android.provider.Settings
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityWindowInfo
 import com.tencent.edgeagent.domain.model.ActionParams
 import com.tencent.edgeagent.domain.model.ActionType
@@ -613,40 +618,67 @@ class ActionExecutor private constructor() {
                     if (context == null) {
                         return ExecutionResult.Failure("设备控制失败：App Context 未初始化")
                     }
-                    val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE)
-                            as android.media.AudioManager
+                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
                     when (params.controlType) {
                         DeviceControlType.VOLUME_UP -> {
                             audioManager.adjustStreamVolume(
-                                android.media.AudioManager.STREAM_MUSIC,
-                                android.media.AudioManager.ADJUST_RAISE,
-                                android.media.AudioManager.FLAG_SHOW_UI
+                                AudioManager.STREAM_MUSIC,
+                                AudioManager.ADJUST_RAISE,
+                                AudioManager.FLAG_SHOW_UI
                             )
                             Timber.d("音量增大")
                             ExecutionResult.Success("音量增大")
                         }
                         DeviceControlType.VOLUME_DOWN -> {
                             audioManager.adjustStreamVolume(
-                                android.media.AudioManager.STREAM_MUSIC,
-                                android.media.AudioManager.ADJUST_LOWER,
-                                android.media.AudioManager.FLAG_SHOW_UI
+                                AudioManager.STREAM_MUSIC,
+                                AudioManager.ADJUST_LOWER,
+                                AudioManager.FLAG_SHOW_UI
                             )
                             Timber.d("音量减小")
                             ExecutionResult.Success("音量减小")
+                        }
+                        DeviceControlType.VOLUME_MUTE -> {
+                            audioManager.adjustStreamVolume(
+                                AudioManager.STREAM_MUSIC,
+                                AudioManager.ADJUST_MUTE,
+                                AudioManager.FLAG_SHOW_UI
+                            )
+                            ExecutionResult.Success("媒体音量静音")
+                        }
+                        DeviceControlType.VOLUME_UNMUTE -> {
+                            audioManager.adjustStreamVolume(
+                                AudioManager.STREAM_MUSIC,
+                                AudioManager.ADJUST_UNMUTE,
+                                AudioManager.FLAG_SHOW_UI
+                            )
+                            ExecutionResult.Success("取消媒体音量静音")
+                        }
+                        DeviceControlType.MEDIA_PLAY_PAUSE -> {
+                            dispatchMediaKey(audioManager, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                            ExecutionResult.Success("播放/暂停")
+                        }
+                        DeviceControlType.MEDIA_NEXT -> {
+                            dispatchMediaKey(audioManager, KeyEvent.KEYCODE_MEDIA_NEXT)
+                            ExecutionResult.Success("下一首")
+                        }
+                        DeviceControlType.MEDIA_PREVIOUS -> {
+                            dispatchMediaKey(audioManager, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                            ExecutionResult.Success("上一首")
                         }
                         DeviceControlType.BRIGHTNESS_UP -> {
                             if (!ensureCanWriteSettings(context)) {
                                 return ExecutionResult.Success("已打开修改系统设置授权页")
                             }
-                            val current = android.provider.Settings.System.getInt(
+                            val current = Settings.System.getInt(
                                 context.contentResolver,
-                                android.provider.Settings.System.SCREEN_BRIGHTNESS, 128
+                                Settings.System.SCREEN_BRIGHTNESS, 128
                             )
                             val newVal = (current + 30).coerceAtMost(255)
-                            android.provider.Settings.System.putInt(
+                            Settings.System.putInt(
                                 context.contentResolver,
-                                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                                Settings.System.SCREEN_BRIGHTNESS,
                                 newVal
                             )
                             Timber.d("亮度增加: $current -> $newVal")
@@ -656,37 +688,106 @@ class ActionExecutor private constructor() {
                             if (!ensureCanWriteSettings(context)) {
                                 return ExecutionResult.Success("已打开修改系统设置授权页")
                             }
-                            val current = android.provider.Settings.System.getInt(
+                            val current = Settings.System.getInt(
                                 context.contentResolver,
-                                android.provider.Settings.System.SCREEN_BRIGHTNESS, 128
+                                Settings.System.SCREEN_BRIGHTNESS, 128
                             )
                             val newVal = (current - 30).coerceAtLeast(10)
-                            android.provider.Settings.System.putInt(
+                            Settings.System.putInt(
                                 context.contentResolver,
-                                android.provider.Settings.System.SCREEN_BRIGHTNESS,
+                                Settings.System.SCREEN_BRIGHTNESS,
                                 newVal
                             )
                             Timber.d("亮度减少: $current -> $newVal")
                             ExecutionResult.Success("亮度减少至 $newVal")
                         }
+                        DeviceControlType.DISPLAY_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_DISPLAY_SETTINGS, "显示设置")
+                        }
+                        DeviceControlType.SOUND_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_SOUND_SETTINGS, "声音与触感设置")
+                        }
+                        DeviceControlType.NOTIFICATION_SETTINGS -> {
+                            openSettings(context, "android.settings.NOTIFICATION_SETTINGS", "通知设置")
+                        }
+                        DeviceControlType.WIFI_SETTINGS,
                         DeviceControlType.WIFI_TOGGLE -> {
                             // Android 10+ 不允许直接开关 WiFi，引导用户到设置
-                            val intent = android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS)
-                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
-                            ExecutionResult.Success("已打开 WiFi 设置")
+                            openSettings(context, Settings.ACTION_WIFI_SETTINGS, "Wi-Fi 设置")
                         }
+                        DeviceControlType.BLUETOOTH_SETTINGS,
                         DeviceControlType.BLUETOOTH_TOGGLE -> {
-                            val intent = android.content.Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)
-                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
-                            ExecutionResult.Success("已打开蓝牙设置")
+                            openSettings(context, Settings.ACTION_BLUETOOTH_SETTINGS, "蓝牙设置")
                         }
+                        DeviceControlType.AIRPLANE_MODE_SETTINGS,
                         DeviceControlType.AIRPLANE_MODE_TOGGLE -> {
-                            val intent = android.content.Intent(android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS)
-                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                            context.startActivity(intent)
-                            ExecutionResult.Success("已打开飞行模式设置")
+                            openSettings(context, Settings.ACTION_AIRPLANE_MODE_SETTINGS, "飞行模式设置")
+                        }
+                        DeviceControlType.NETWORK_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_WIRELESS_SETTINGS, "网络设置")
+                        }
+                        DeviceControlType.MOBILE_NETWORK_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_DATA_ROAMING_SETTINGS, "移动网络设置")
+                        }
+                        DeviceControlType.HOTSPOT_SETTINGS -> {
+                            openSettings(context, "android.settings.TETHER_SETTINGS", "热点设置")
+                        }
+                        DeviceControlType.NFC_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_NFC_SETTINGS, "NFC 设置")
+                        }
+                        DeviceControlType.VPN_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_VPN_SETTINGS, "VPN 设置")
+                        }
+                        DeviceControlType.LOCATION_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_LOCATION_SOURCE_SETTINGS, "定位设置")
+                        }
+                        DeviceControlType.DATE_TIME_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_DATE_SETTINGS, "日期和时间设置")
+                        }
+                        DeviceControlType.LANGUAGE_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_LOCALE_SETTINGS, "语言设置")
+                        }
+                        DeviceControlType.WALLPAPER_SETTINGS -> {
+                            openSettings(context, Intent.ACTION_SET_WALLPAPER, "壁纸设置")
+                        }
+                        DeviceControlType.ACCESSIBILITY_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_ACCESSIBILITY_SETTINGS, "无障碍设置")
+                        }
+                        DeviceControlType.APP_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS, "应用管理")
+                        }
+                        DeviceControlType.BATTERY_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_BATTERY_SAVER_SETTINGS, "电池设置")
+                        }
+                        DeviceControlType.STORAGE_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_INTERNAL_STORAGE_SETTINGS, "存储设置")
+                        }
+                        DeviceControlType.PRIVACY_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_PRIVACY_SETTINGS, "隐私设置")
+                        }
+                        DeviceControlType.SECURITY_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_SECURITY_SETTINGS, "安全设置")
+                        }
+                        DeviceControlType.DO_NOT_DISTURB_SETTINGS -> {
+                            openSettings(context, Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS, "勿扰模式设置")
+                        }
+                        DeviceControlType.NOTIFICATIONS_SHADE -> {
+                            executeServiceGlobalAction(service, "通知栏") { it.performNotifications() }
+                        }
+                        DeviceControlType.QUICK_SETTINGS -> {
+                            executeServiceGlobalAction(service, "快捷设置") { it.performQuickSettings() }
+                        }
+                        DeviceControlType.DISMISS_SYSTEM_SHADE -> {
+                            executeServiceGlobalAction(service, "关闭系统遮罩") { it.dismissNotificationShade() }
+                        }
+                        DeviceControlType.LOCK_SCREEN -> {
+                            executeServiceGlobalAction(service, "锁屏") { it.performLockScreen() }
+                        }
+                        DeviceControlType.POWER_DIALOG -> {
+                            executeServiceGlobalAction(service, "电源菜单") { it.performPowerDialog() }
+                        }
+                        DeviceControlType.SPLIT_SCREEN -> {
+                            executeServiceGlobalAction(service, "分屏") { it.performSplitScreen() }
                         }
                     }
                 } catch (e: Exception) {
@@ -695,6 +796,43 @@ class ActionExecutor private constructor() {
                 }
             }
             else -> ExecutionResult.Failure("参数类型错误")
+        }
+    }
+
+    private fun openSettings(context: Context, action: String, label: String): ExecutionResult {
+        return try {
+            val intent = Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            ExecutionResult.Success("已打开$label")
+        } catch (e: Exception) {
+            Timber.w(e, "打开${label}失败，回退系统设置")
+            return try {
+                context.startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                ExecutionResult.Success("已打开系统设置")
+            } catch (fallback: Exception) {
+                Timber.e(fallback, "打开系统设置失败")
+                ExecutionResult.Failure("打开${label}失败: ${fallback.message}")
+            }
+        }
+    }
+
+    private fun dispatchMediaKey(audioManager: AudioManager, keyCode: Int) {
+        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+    }
+
+    private fun executeServiceGlobalAction(
+        service: EdgeAgentAccessibilityService?,
+        label: String,
+        action: (EdgeAgentAccessibilityService) -> Boolean
+    ): ExecutionResult {
+        if (service == null) {
+            return ExecutionResult.Failure("${label}失败：无障碍服务未启动")
+        }
+        return if (action(service)) {
+            ExecutionResult.Success("${label}成功")
+        } else {
+            ExecutionResult.Failure("${label}失败")
         }
     }
 
@@ -712,14 +850,14 @@ class ActionExecutor private constructor() {
     }
 
     private fun ensureCanWriteSettings(context: android.content.Context): Boolean {
-        if (android.provider.Settings.System.canWrite(context)) {
+        if (Settings.System.canWrite(context)) {
             return true
         }
 
-        val intent = android.content.Intent(
-            android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+        val intent = Intent(
+            Settings.ACTION_MANAGE_WRITE_SETTINGS,
             android.net.Uri.parse("package:${context.packageName}")
-        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
         return false
     }

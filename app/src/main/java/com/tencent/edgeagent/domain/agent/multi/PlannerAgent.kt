@@ -1,6 +1,8 @@
 package com.tencent.edgeagent.domain.agent.multi
 
 import com.tencent.edgeagent.data.rag.LocalRagEngine
+import com.tencent.edgeagent.domain.agent.L1CommandRouter
+import com.tencent.edgeagent.domain.model.ActionType
 import timber.log.Timber
 
 /**
@@ -39,9 +41,12 @@ class PlannerAgent private constructor(
 
     private fun resolveTaskType(goal: String, targetPackage: String?): TaskType {
         val normalized = goal.lowercase()
+        val l1Response = L1CommandRouter.getInstance().resolve(goal)
         return when {
             targetPackage == "com.tencent.mm" &&
                 (goal.contains("发") || goal.contains("消息") || goal.contains("回复")) -> TaskType.WECHAT_DRAFT
+            l1Response?.action == ActionType.DEVICE_CONTROL -> TaskType.DEVICE_CONTROL
+            l1Response?.action in setOf(ActionType.BACK, ActionType.HOME, ActionType.RECENTS) -> TaskType.SYSTEM_NAVIGATION
             isSystemNavigation(goal, normalized) -> TaskType.SYSTEM_NAVIGATION
             goal.contains("音量") || goal.contains("亮度") || normalized.contains("wifi") ||
                 goal.contains("蓝牙") || goal.contains("飞行模式") -> TaskType.DEVICE_CONTROL

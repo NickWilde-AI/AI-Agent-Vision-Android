@@ -118,6 +118,8 @@ Agent 应展示：
 
 ## MVP 范围
 
+当前 L1 基础能力的完整清单见 [L1_CAPABILITIES.md](L1_CAPABILITIES.md)。L1 先做低风险、可恢复、可验证的手机基础能力；L2 再处理系统设置 App 内的多步骤目标。
+
 MVP 目标：让用户能稳定完成低风险任务，并验证 Android Agent 主链路。
 
 ### MVP 包含
