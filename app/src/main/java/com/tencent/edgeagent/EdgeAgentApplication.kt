@@ -1,6 +1,7 @@
 package com.tencent.edgeagent
 
 import android.app.Application
+import com.tencent.edgeagent.data.execution.ActionExecutor
 import com.tencent.edgeagent.data.inference.LocalModelManager
 import com.tencent.edgeagent.data.rag.LocalRagEngine
 import com.tencent.edgeagent.data.trace.AgentTraceStore
@@ -26,6 +27,7 @@ class EdgeAgentApplication : Application() {
         LocalRagEngine.getInstance().initialize(this)
         AgentTraceStore.getInstance().initialize(this)
         LocalModelManager.getInstance().initialize(this)
+        ActionExecutor.getInstance().initialize(this)
         
         Timber.d("EdgeAgentApplication 初始化完成")
     }

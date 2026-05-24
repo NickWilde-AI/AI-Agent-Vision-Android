@@ -28,6 +28,7 @@ import timber.log.Timber
 class AgentOrchestrator private constructor(
     private val stateMachine: AgentStateMachine,
     private val intentRouter: IntentRouter,
+    private val l1CommandRouter: L1CommandRouter,
     private val localModelEngine: ILocalModelEngine,
     private val cloudFallbackManager: CloudFallbackManager,
     private val actionExecutor: ActionExecutor,
@@ -49,10 +50,11 @@ class AgentOrchestrator private constructor(
             stateMachine.handleEvent(AgentEvent.UserTriggered(userInput))
 
             val intent = intentRouter.parseIntent(userInput)
-            val result = if (cloudFallbackManager.isEnabled()) {
-                executeCloudAgent(userInput, intent, onProgress, onResponse)
-            } else {
-                executeLocalSingleRound(userInput, intent, onProgress, onResponse)
+            val l1Response = l1CommandRouter.resolve(userInput)
+            val result = when {
+                l1Response != null -> executeDeterministicL1(userInput, l1Response, onProgress, onResponse)
+                cloudFallbackManager.isEnabled() -> executeCloudAgent(userInput, intent, onProgress, onResponse)
+                else -> executeLocalSingleRound(userInput, intent, onProgress, onResponse)
             }
 
             stateMachine.handleEvent(AgentEvent.Reset)
@@ -62,6 +64,66 @@ class AgentOrchestrator private constructor(
             val message = e.message ?: "未知错误"
             stateMachine.handleEvent(AgentEvent.Error(e, message))
             AgentRunResult.Failure("执行异常: $message")
+        }
+    }
+
+    private suspend fun executeDeterministicL1(
+        userInput: String,
+        response: AgentResponse,
+        onProgress: (String) -> Unit,
+        onResponse: (AgentResponse) -> Unit
+    ): AgentRunResult {
+        Timber.i("[AgentFlow] deterministic L1 mode action=${response.action}")
+        val traceId = traceStore.startSession(userInput)
+        var screenData: ScreenData? = null
+        return try {
+            onProgress("L1 确定性策略执行中...")
+            val currentScreenData = captureRealScreenData() ?: createFallbackScreenData()
+            screenData = currentScreenData
+            stateMachine.handleEvent(AgentEvent.PerceptionComplete(currentScreenData))
+
+            onResponse(response)
+            stateMachine.handleEvent(AgentEvent.LocalReasoningComplete(response))
+            onProgress("执行：${response.action}")
+
+            val result = executeAction(response)
+            val resultMessage = when (result) {
+                is AgentRunResult.Success -> result.message
+                is AgentRunResult.Failure -> result.message
+            }
+            val executionResult = when (result) {
+                is AgentRunResult.Success -> ExecutionResult.Success(resultMessage)
+                is AgentRunResult.Failure -> ExecutionResult.Failure(resultMessage)
+            }
+
+            traceStore.recordStep(
+                sessionId = traceId,
+                round = 1,
+                screenData = currentScreenData,
+                response = response,
+                executionResult = executionResult,
+                reflection = null,
+                note = "l1_deterministic"
+            )
+            traceStore.finishSession(
+                sessionId = traceId,
+                success = result is AgentRunResult.Success,
+                reason = resultMessage
+            )
+            result
+        } catch (e: Exception) {
+            val message = e.message ?: "L1 确定性执行异常"
+            traceStore.recordStep(
+                sessionId = traceId,
+                round = 1,
+                screenData = screenData,
+                response = response,
+                executionResult = ExecutionResult.Failure(message),
+                reflection = null,
+                note = "l1_deterministic_exception"
+            )
+            traceStore.finishSession(traceId, success = false, reason = message)
+            throw e
         }
     }
 
@@ -252,6 +314,7 @@ class AgentOrchestrator private constructor(
                 instance ?: AgentOrchestrator(
                     stateMachine = AgentStateMachine.getInstance(),
                     intentRouter = IntentRouter.getInstance(),
+                    l1CommandRouter = L1CommandRouter.getInstance(),
                     localModelEngine = LocalModelEngineProvider.getInstance(),
                     cloudFallbackManager = CloudFallbackManager.getInstance(),
                     actionExecutor = ActionExecutor.getInstance(),

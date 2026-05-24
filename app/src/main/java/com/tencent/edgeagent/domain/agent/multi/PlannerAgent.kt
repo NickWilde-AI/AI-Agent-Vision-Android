@@ -77,6 +77,7 @@ class PlannerAgent private constructor(
             goal.contains("淘宝") -> "com.taobao.taobao"
             goal.contains("抖音") -> "com.ss.android.ugc.aweme"
             goal.contains("QQ", ignoreCase = true) -> "com.tencent.mobileqq"
+            goal.contains("相机") || normalized.contains("camera") -> "com.android.camera"
             goal.contains("电话") || goal.contains("联系人") -> "com.android.contacts"
             goal.contains("设置") -> "com.android.settings"
             normalized.contains("chrome") || goal.contains("浏览器") -> "com.android.chrome"

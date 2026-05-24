@@ -7,13 +7,14 @@
 VisionAgent Android 的核心目标是构建安全可控的 Android Agent 主链路：
 
 ```text
-观察屏幕 -> 规划任务 -> 检索本地策略 -> 模型决策 -> 安全检查 -> 执行动作 -> 再次观察
+低风险确定性路由 -> 观察屏幕 -> 规划任务 -> 检索本地策略 -> 模型决策 -> 安全检查 -> 执行动作 -> 再次观察
 ```
 
 设计重点：
 
 - 不让模型自由执行完整任务。
 - 每轮只执行一个最小动作。
+- L1 低风险任务优先走确定性策略，不依赖模型猜测。
 - 复杂 App 使用策略约束。
 - 高风险动作必须被拦截或确认。
 - 失败必须可记录、可回放、可沉淀为策略。
@@ -31,6 +32,7 @@ Domain Layer
   AgentExecutor
   AgentStateMachine
   IntentRouter
+  L1CommandRouter
   PlannerAgent
   ReflectionAgent
   ActionGuard
@@ -57,12 +59,28 @@ Service Layer
 
 ## 主流程
 
+### L1 确定性流程
+
+```text
+用户输入
+  -> MainViewModel.executeCommand()
+  -> AgentOrchestrator.executeCommand()
+  -> IntentRouter.parseIntent()
+  -> L1CommandRouter.resolve()
+  -> AgentTraceStore.startSession()
+  -> ActionExecutor.execute()
+  -> AgentTraceStore.recordStep()
+```
+
+该流程用于调音量、亮度、返回、Home、最近任务、打开相机、打开 Wi-Fi 设置、打开常见 App 等低风险动作。它不调用本地模型，也不调用云端千问。
+
 ### 云端多轮 Agent 流程
 
 ```text
 用户输入
   -> MainViewModel.executeCommand()
   -> AgentOrchestrator.executeCommand()
+  -> L1CommandRouter 未命中
   -> AgentStateMachine: IDLE -> PERCEIVING
   -> AgentExecutor.executeTask()
   -> PlannerAgent.plan()
@@ -105,9 +123,37 @@ App 启动
 职责：
 
 - 对 UI 层提供统一入口。
+- 优先执行 L1 确定性低风险任务。
 - 初始化本地或云端执行路径。
 - 管理状态机的顶层流转。
 - 隐藏多轮 Agent 的内部复杂度。
+
+当前路由顺序：
+
+```text
+L1CommandRouter 命中
+  -> 直接执行确定性动作
+L1CommandRouter 未命中，云端已配置
+  -> AgentExecutor 多轮千问链路
+云端未配置
+  -> 本地模型单轮链路
+```
+
+### L1CommandRouter
+
+职责：
+
+- 将低风险自然语言命令直接映射为 `AgentResponse`。
+- 避免把调音量、打开相机、打开 Wi-Fi 设置这类任务交给模型猜测。
+- 对包含发送、支付、下单、删除、提交等词的复杂命令主动不接管，让多轮安全链路处理。
+
+当前覆盖：
+
+- 音量调高/调低。
+- 亮度调高/调低。
+- Wi-Fi、蓝牙、飞行模式设置页跳转。
+- 返回、Home、最近任务。
+- 打开相机、微信、美团、支付宝、淘宝、抖音、QQ、电话、设置、浏览器。
 
 ### AgentExecutor
 
@@ -254,6 +300,11 @@ inferenceTimeMs=18983
 - 执行点击、长按、滑动、输入、返回、Home、最近任务、打开 App、设备控制、等待。
 - 校验坐标边界。
 - 返回 `ExecutionResult`。
+
+执行依赖：
+
+- 点击、滑动、输入、返回、Home、最近任务需要 `EdgeAgentAccessibilityService`。
+- 打开 App、调音量、打开 Wi-Fi/蓝牙/飞行模式设置可以使用 `Application Context` 执行，避免 L1 任务因为无障碍服务未连接而整体失败。
 
 ## 状态机
 

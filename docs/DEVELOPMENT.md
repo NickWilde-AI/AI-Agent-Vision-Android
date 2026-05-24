@@ -196,6 +196,7 @@ local_models/gemma-4-e2b-it/gemma-4-E2B-it.litertlm
 | --- | --- | --- |
 | UI | `app/src/main/java/com/tencent/edgeagent/ui` | 命令输入、权限状态、执行进度展示 |
 | 编排 | `domain/agent/AgentOrchestrator.kt` | 接收 UI 命令，选择本地或多轮 Agent 流程 |
+| L1 路由 | `domain/agent/L1CommandRouter.kt` | 低风险系统任务确定性映射，不调用模型 |
 | 多轮执行 | `domain/agent/AgentExecutor.kt` | 屏幕观察、模型决策、动作执行、反馈循环 |
 | Planner | `domain/agent/multi/PlannerAgent.kt` | 任务分类、目标包名、安全模式、RAG 检索 |
 | Reflection | `domain/agent/multi/ReflectionAgent.kt` | 分析失败、重复动作、不可观测状态 |
@@ -474,15 +475,17 @@ git push origin main
 
 当前原则：
 1. 每轮只执行一个最小动作。
-2. 复杂 App 任务必须使用策略约束。
-3. 禁止自动执行发送、支付、下单、删除、转账、提交等高风险最终动作。
-4. 微信任务只允许填草稿，不允许自动点击发送。
-5. 截图和 UI 树都不可用时，不能猜测页面内容。
-6. 新增策略必须可测试、可解释、可回放。
-7. 本地模型失败必须安全降级为 NO_ACTION。
+2. L1 低风险任务优先走确定性路由。
+3. 复杂 App 任务必须使用策略约束。
+4. 禁止自动执行发送、支付、下单、删除、转账、提交等高风险最终动作。
+5. 微信任务只允许填草稿，不允许自动点击发送。
+6. 截图和 UI 树都不可用时，不能猜测页面内容。
+7. 新增策略必须可测试、可解释、可回放。
+8. 本地模型失败必须安全降级为 NO_ACTION。
 
 核心模块：
 - AgentOrchestrator：UI 到 Agent 的统一入口。
+- L1CommandRouter：调音量、Home、打开相机、Wi-Fi 设置等确定性低风险任务。
 - AgentExecutor：多轮观察、决策、执行循环。
 - PlannerAgent：任务分类、目标包名、安全模式、RAG 检索。
 - ReflectionAgent：失败、重复、等待、不可观测状态分析。

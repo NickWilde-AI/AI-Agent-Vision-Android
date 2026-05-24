@@ -1,5 +1,6 @@
 package com.tencent.edgeagent.data.execution
 
+import android.content.Context
 import com.tencent.edgeagent.domain.model.ActionParams
 import com.tencent.edgeagent.domain.model.ActionType
 import com.tencent.edgeagent.domain.model.AgentResponse
@@ -17,30 +18,32 @@ import timber.log.Timber
  */
 class ActionExecutor private constructor() {
 
+    @Volatile
+    private var appContext: Context? = null
+
+    fun initialize(context: Context) {
+        appContext = context.applicationContext
+    }
+
     /**
      * 执行 Agent 响应中的动作
      */
     suspend fun execute(response: AgentResponse): ExecutionResult {
         val service = EdgeAgentAccessibilityService.getInstance()
-        
-        if (service == null) {
-            Timber.e("无障碍服务未启动")
-            return ExecutionResult.Failure("无障碍服务未启动，请在设置中开启")
-        }
 
         Timber.d("开始执行动作: ${response.action}, params=${response.actionParams}")
 
         return try {
             when (response.action) {
-                ActionType.CLICK -> executeClick(service, response.actionParams)
-                ActionType.LONG_CLICK -> executeLongClick(service, response.actionParams)
-                ActionType.SWIPE -> executeSwipe(service, response.actionParams)
-                ActionType.INPUT_TEXT -> executeInputText(service, response.actionParams)
-                ActionType.BACK -> executeBack(service)
-                ActionType.HOME -> executeHome(service)
-                ActionType.RECENTS -> executeRecents(service)
-                ActionType.OPEN_APP -> executeOpenApp(response.actionParams)
-                ActionType.DEVICE_CONTROL -> executeDeviceControl(response.actionParams)
+                ActionType.CLICK -> executeClick(requireAccessibilityService(service), response.actionParams)
+                ActionType.LONG_CLICK -> executeLongClick(requireAccessibilityService(service), response.actionParams)
+                ActionType.SWIPE -> executeSwipe(requireAccessibilityService(service), response.actionParams)
+                ActionType.INPUT_TEXT -> executeInputText(requireAccessibilityService(service), response.actionParams)
+                ActionType.BACK -> executeBack(requireAccessibilityService(service))
+                ActionType.HOME -> executeHome(requireAccessibilityService(service))
+                ActionType.RECENTS -> executeRecents(requireAccessibilityService(service))
+                ActionType.OPEN_APP -> executeOpenApp(response.actionParams, service)
+                ActionType.DEVICE_CONTROL -> executeDeviceControl(response.actionParams, service)
                 ActionType.WAIT -> executeWait(response.actionParams)
                 ActionType.NO_ACTION -> ExecutionResult.Success("无需操作")
             }
@@ -48,6 +51,12 @@ class ActionExecutor private constructor() {
             Timber.e(e, "执行动作失败")
             ExecutionResult.Failure("执行失败: ${e.message}")
         }
+    }
+
+    private fun requireAccessibilityService(
+        service: EdgeAgentAccessibilityService?
+    ): EdgeAgentAccessibilityService {
+        return service ?: throw IllegalStateException("无障碍服务未启动，请在设置中开启")
     }
 
     /**
@@ -320,31 +329,40 @@ class ActionExecutor private constructor() {
      *
      * 说明：发送微信消息这类复杂任务必须先稳定进入目标应用，再交给 LLM 做界面内操作。
      */
-    private suspend fun executeOpenApp(params: ActionParams): ExecutionResult {
+    private suspend fun executeOpenApp(
+        params: ActionParams,
+        service: EdgeAgentAccessibilityService?
+    ): ExecutionResult {
         return when (params) {
             is ActionParams.OpenApp -> {
                 try {
-                    val service = EdgeAgentAccessibilityService.getInstance()
-                        ?: return ExecutionResult.Failure("无障碍服务未启动")
+                    val context = service?.applicationContext ?: appContext
+                    if (context == null) {
+                        return ExecutionResult.Failure("打开应用失败：App Context 未初始化")
+                    }
 
                     val packageName = params.packageName
                     if (packageName.isBlank()) {
                         return ExecutionResult.Failure("打开应用失败：packageName 为空")
                     }
 
-                    val currentPackage = getCurrentPackage(service)
+                    val currentPackage = service?.let(::getCurrentPackage)
                     if (currentPackage == packageName) {
                         Timber.d("[OPEN_APP] 已在目标应用内: $packageName")
                         return ExecutionResult.Success("已在应用内: $packageName")
                     }
 
-                    val appName = getAppName(service.applicationContext, packageName)
+                    val appName = getAppName(context, packageName)
                         ?: inferAppNameFromPackage(packageName)
                     Timber.i("[OPEN_APP] 打开应用: appName=$appName, package=$packageName")
 
-                    val intentLaunchResult = launchAppByIntent(service.applicationContext, packageName, appName)
+                    val intentLaunchResult = launchAppByIntent(context, packageName, appName)
                     if (intentLaunchResult != null) {
                         return intentLaunchResult
+                    }
+
+                    if (service == null) {
+                        return ExecutionResult.Failure("打开应用失败：系统启动 Intent 不可用，且无障碍服务未启动")
                     }
 
                     Timber.w("[OPEN_APP] Intent 启动不可用，回退无障碍找图标: $appName")
@@ -448,6 +466,7 @@ class ActionExecutor private constructor() {
             "com.taobao.taobao" -> "淘宝"
             "com.ss.android.ugc.aweme" -> "抖音"
             "com.tencent.mobileqq" -> "QQ"
+            "com.android.camera" -> "相机"
             "com.android.contacts" -> "电话"
             "com.android.settings" -> "设置"
             else -> packageName.substringAfterLast('.')
@@ -553,13 +572,17 @@ class ActionExecutor private constructor() {
      *
      * 100% 本地执行，绝不上云（隐私合规）
      */
-    private fun executeDeviceControl(params: ActionParams): ExecutionResult {
+    private fun executeDeviceControl(
+        params: ActionParams,
+        service: EdgeAgentAccessibilityService?
+    ): ExecutionResult {
         return when (params) {
             is ActionParams.DeviceControl -> {
                 try {
-                    val service = EdgeAgentAccessibilityService.getInstance()
-                        ?: return ExecutionResult.Failure("无障碍服务未启动")
-                    val context = service.applicationContext
+                    val context = service?.applicationContext ?: appContext
+                    if (context == null) {
+                        return ExecutionResult.Failure("设备控制失败：App Context 未初始化")
+                    }
                     val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE)
                             as android.media.AudioManager
 

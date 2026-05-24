@@ -165,11 +165,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 快捷测试
-        btnTest1.setOnClickListener { viewModel.executeCommand("点击屏幕中心") }
-        btnTest2.setOnClickListener { viewModel.executeCommand("向上滑动") }
-        btnTest3.setOnClickListener { viewModel.executeCommand("打开微信") }
-        btnTest4.setOnClickListener { viewModel.executeCommand("打开美团") }
-        btnTest5.setOnClickListener { viewModel.executeCommand("打开电话") }
+        btnTest1.setOnClickListener { viewModel.executeCommand("调高音量") }
+        btnTest2.setOnClickListener { viewModel.executeCommand("回到桌面") }
+        btnTest3.setOnClickListener { viewModel.executeCommand("打开相机") }
+        btnTest4.setOnClickListener { viewModel.executeCommand("打开 WiFi 设置") }
+        btnTest5.setOnClickListener { viewModel.executeCommand("打开微信") }
     }
 
     // ────────────────────────────────────────────

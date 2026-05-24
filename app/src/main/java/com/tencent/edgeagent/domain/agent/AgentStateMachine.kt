@@ -112,7 +112,12 @@ class AgentStateMachine private constructor() {
             }
             
             is AgentEvent.Reset -> {
-                AgentState.IDLE
+                if (_currentState.value == AgentState.IDLE) {
+                    Timber.d("状态机已处于 IDLE，忽略重复 Reset")
+                    null
+                } else {
+                    AgentState.IDLE
+                }
             }
         }
 
