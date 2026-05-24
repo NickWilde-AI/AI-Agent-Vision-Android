@@ -189,7 +189,17 @@
                     android:text="MockVLM"
                     android:textSize="13sp"
                     android:textColor="@color/va_text_primary"
-                    android:fontFamily="monospace" />
+                    android:fontFamily="monospace"
+                    android:layout_marginBottom="8dp" />
+
+                <Button
+                    android:id="@+id/btn_model_health_check"
+                    android:layout_width="match_parent"
+                    android:layout_height="36dp"
+                    android:text="本地模型检查"
+                    android:textSize="11sp"
+                    android:textColor="@color/va_text_primary"
+                    android:background="@drawable/input_bg" />
             </LinearLayout>
 
             <LinearLayout

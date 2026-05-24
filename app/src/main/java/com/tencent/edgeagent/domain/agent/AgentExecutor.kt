@@ -4,12 +4,17 @@ import android.graphics.Bitmap
 import com.tencent.edgeagent.data.cloud.CloudFallbackManager
 import com.tencent.edgeagent.data.execution.ActionExecutor
 import com.tencent.edgeagent.data.execution.ExecutionResult
+import com.tencent.edgeagent.data.trace.AgentTraceStore
+import com.tencent.edgeagent.data.vision.BasicLocalVisionEngine
+import com.tencent.edgeagent.data.vision.LocalVisionObservation
 import com.tencent.edgeagent.domain.agent.multi.AgentPlan
 import com.tencent.edgeagent.domain.agent.multi.AgentReflection
 import com.tencent.edgeagent.domain.agent.multi.PlannerAgent
 import com.tencent.edgeagent.domain.agent.multi.ReflectionAgent
 import com.tencent.edgeagent.domain.agent.safety.ActionGuard
 import com.tencent.edgeagent.domain.agent.safety.GuardResult
+import com.tencent.edgeagent.domain.agent.strategy.AppStrategyRegistry
+import com.tencent.edgeagent.domain.agent.strategy.StrategyRewrite
 import com.tencent.edgeagent.domain.model.*
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
 import kotlinx.coroutines.delay
@@ -42,6 +47,9 @@ class AgentExecutor private constructor() {
     private val plannerAgent = PlannerAgent.getInstance()
     private val reflectionAgent = ReflectionAgent.getInstance()
     private val actionGuard = ActionGuard.getInstance()
+    private val traceStore = AgentTraceStore.getInstance()
+    private val localVisionEngine = BasicLocalVisionEngine.getInstance()
+    private val strategyRegistry = AppStrategyRegistry.getInstance()
     
     companion object {
         private const val MAX_ROUNDS = 16 // 最大对话轮数
@@ -72,6 +80,12 @@ class AgentExecutor private constructor() {
     ): TaskExecutionResult {
         Timber.i("[AgentTask] start goal=$userGoal")
         onProgress("[0/$MAX_ROUNDS] 开始任务：$userGoal")
+        val traceId = traceStore.startSession(userGoal)
+
+        fun fail(reason: String): TaskExecutionResult.Failure {
+            traceStore.finishSession(traceId, success = false, reason = reason)
+            return TaskExecutionResult.Failure(reason)
+        }
         
         val conversationHistory = mutableListOf<ConversationTurn>()
         var currentRound = 0
@@ -80,47 +94,84 @@ class AgentExecutor private constructor() {
         // 初始截图
         var currentScreenData = captureScreen()
         if (currentScreenData == null) {
-            return TaskExecutionResult.Failure("无法捕获屏幕数据")
+            return fail("无法捕获屏幕数据")
         }
 
         val plan = plannerAgent.plan(userGoal, currentScreenData.currentPackage)
+        traceStore.recordPlan(traceId, plan)
         onProgress("[0/$MAX_ROUNDS] 规划完成：${plan.taskType} / ${plan.safetyMode}")
         
         val maxRounds = minOf(MAX_ROUNDS, plan.maxRounds)
         while (currentRound < maxRounds && !isTaskComplete) {
             currentRound++
-            Timber.i("[AgentTask] round=$currentRound package=${currentScreenData?.currentPackage} uiTree=${hasUsableUiTree(currentScreenData?.uiTreeText)} screenshot=${currentScreenData?.hasRealScreenshot}")
-            onProgress("[$currentRound/$maxRounds] 分析当前屏幕：${currentScreenData?.currentPackage ?: "未知包名"}")
+            val screenData = currentScreenData ?: return fail("无法捕获屏幕数据")
+            Timber.i("[AgentTask] round=$currentRound package=${screenData.currentPackage} uiTree=${hasUsableUiTree(screenData.uiTreeText)} screenshot=${screenData.hasRealScreenshot}")
+            onProgress("[$currentRound/$maxRounds] 分析当前屏幕：${screenData.currentPackage ?: "未知包名"}")
             
             try {
-                val reflection = reflectionAgent.reflect(conversationHistory, currentScreenData!!)
+                val reflection = reflectionAgent.reflect(conversationHistory, screenData)
                 if (reflection.shouldAbort) {
-                    return TaskExecutionResult.Failure(reflection.abortReason ?: "反思 Agent 停止任务")
+                    val reason = reflection.abortReason ?: "反思 Agent 停止任务"
+                    traceStore.recordStep(
+                        sessionId = traceId,
+                        round = currentRound,
+                        screenData = screenData,
+                        response = null,
+                        executionResult = null,
+                        reflection = reflection,
+                        note = reason
+                    )
+                    return fail(reason)
                 }
 
+                val localObservation = localVisionEngine.observe(screenData)
+                val strategyHints = strategyRegistry.promptHints(plan, screenData, conversationHistory)
                 val localResponse = buildDeterministicResponseIfNeeded(
                     userGoal,
-                    currentScreenData!!,
+                    screenData,
                     currentRound,
                     conversationHistory
                 )
 
                 // 构建提示词（包含历史对话）
                 val rawResponse = localResponse ?: run {
-                    val prompt = buildPrompt(userGoal, plan, reflection, conversationHistory, currentRound, currentScreenData!!)
+                    val prompt = buildPrompt(
+                        userGoal = userGoal,
+                        plan = plan,
+                        reflection = reflection,
+                        history = conversationHistory,
+                        currentRound = currentRound,
+                        currentScreenData = screenData,
+                        localObservation = localObservation,
+                        strategyHints = strategyHints
+                    )
 
                     // 调用 LLM 分析当前屏幕
                     cloudManager.inference(
-                        image = currentScreenData!!.bitmap,
+                        image = screenData.bitmap,
                         prompt = prompt,
-                        uiTree = currentScreenData.uiTreeText
+                        uiTree = screenData.uiTreeText
                     )
                 }
-                val response = when (val guard = actionGuard.guard(plan, rawResponse, currentScreenData.currentPackage, currentScreenData.uiTreeText)) {
+                val guardedResponse = when (val guard = actionGuard.guard(plan, rawResponse, screenData.currentPackage, screenData.uiTreeText)) {
                     is GuardResult.Allowed -> guard.response
                     is GuardResult.Blocked -> {
                         onProgress("[$currentRound/$maxRounds] 安全拦截：${guard.reason}")
                         guard.safeResponse
+                    }
+                }
+                val response = when (
+                    val rewrite = strategyRegistry.rewriteResponse(
+                        plan,
+                        screenData,
+                        conversationHistory,
+                        guardedResponse
+                    )
+                ) {
+                    is StrategyRewrite.Keep -> rewrite.response
+                    is StrategyRewrite.Rewritten -> {
+                        onProgress("[$currentRound/$maxRounds] 策略改写：${rewrite.reason}")
+                        rewrite.response
                     }
                 }
                 
@@ -132,6 +183,15 @@ class AgentExecutor private constructor() {
                 if (response.action == ActionType.NO_ACTION) {
                     Timber.d("任务完成")
                     isTaskComplete = true
+                    traceStore.recordStep(
+                        sessionId = traceId,
+                        round = currentRound,
+                        screenData = screenData,
+                        response = response,
+                        executionResult = ExecutionResult.Success("无需操作"),
+                        reflection = reflection,
+                        note = "task_complete_or_waiting_user"
+                    )
                     onProgress("[$currentRound/$maxRounds] 任务完成")
                     break
                 }
@@ -140,12 +200,21 @@ class AgentExecutor private constructor() {
                 if (isRepeatingAction(conversationHistory, response)) {
                     Timber.w("检测到重复操作，强制等待...")
                     onProgress("[$currentRound/$maxRounds] 检测到重复动作，等待界面变化")
+                    traceStore.recordStep(
+                        sessionId = traceId,
+                        round = currentRound,
+                        screenData = screenData,
+                        response = response,
+                        executionResult = null,
+                        reflection = reflection,
+                        note = "repeat_action_skipped"
+                    )
                     delay(OPEN_APP_DELAY)
-                    
+
                     // 截图验证
                     currentScreenData = captureScreen()
                     if (currentScreenData == null) {
-                        return TaskExecutionResult.Failure("无法捕获屏幕数据")
+                        return fail("无法捕获屏幕数据")
                     }
                     continue // 跳过执行，直接进入下一轮
                 }
@@ -154,7 +223,7 @@ class AgentExecutor private constructor() {
                 conversationHistory.add(
                     ConversationTurn(
                         round = currentRound,
-                        screenData = currentScreenData!!,
+                        screenData = screenData,
                         llmResponse = response,
                         executionResult = null
                     )
@@ -166,6 +235,14 @@ class AgentExecutor private constructor() {
                 
                 // 更新对话历史
                 conversationHistory.last().executionResult = executionResult
+                traceStore.recordStep(
+                    sessionId = traceId,
+                    round = currentRound,
+                    screenData = screenData,
+                    response = response,
+                    executionResult = executionResult,
+                    reflection = reflection
+                )
                 
                 when (executionResult) {
                     is ExecutionResult.Success -> {
@@ -191,20 +268,32 @@ class AgentExecutor private constructor() {
                 onProgress("[$currentRound/$maxRounds] 屏幕捕获验证并提取 UI 树")
                 currentScreenData = captureScreen()
                 if (currentScreenData == null) {
-                    return TaskExecutionResult.Failure("无法捕获屏幕数据")
+                    return fail("无法捕获屏幕数据")
                 }
                 
             } catch (e: Exception) {
                 Timber.e(e, "第 $currentRound 轮执行失败")
                 onProgress("[$currentRound/$maxRounds] 异常：${e.message}")
-                return TaskExecutionResult.Failure("执行失败: ${e.message}")
+                traceStore.recordStep(
+                    sessionId = traceId,
+                    round = currentRound,
+                    screenData = currentScreenData,
+                    response = null,
+                    executionResult = ExecutionResult.Failure("异常：${e.message}"),
+                    reflection = null,
+                    note = "exception"
+                )
+                return fail("执行失败: ${e.message}")
             }
         }
         
         if (currentRound >= maxRounds && !isTaskComplete) {
-            return TaskExecutionResult.Failure("超过最大轮数限制")
+            return fail("超过最大轮数限制")
         }
         
+        if (isTaskComplete) {
+            traceStore.finishSession(traceId, success = true, reason = "任务完成")
+        }
         return TaskExecutionResult.Success(
             rounds = currentRound,
             conversationHistory = conversationHistory
@@ -353,7 +442,9 @@ class AgentExecutor private constructor() {
         reflection: AgentReflection,
         history: List<ConversationTurn>,
         currentRound: Int,
-        currentScreenData: ScreenData
+        currentScreenData: ScreenData,
+        localObservation: LocalVisionObservation,
+        strategyHints: List<String>
     ): String {
         val prompt = StringBuilder()
 
@@ -366,6 +457,11 @@ class AgentExecutor private constructor() {
         prompt.append("\n")
         prompt.append(plan.toPromptText())
         prompt.append(reflection.toPromptText())
+        prompt.append(localObservation.toPromptText())
+        if (strategyHints.isNotEmpty()) {
+            prompt.append("【App 专项策略】\n")
+            strategyHints.forEach { prompt.append("- $it\n") }
+        }
         prompt.append("\n")
         if (!currentScreenData.hasRealScreenshot) {
             prompt.append("重要：当前截图只是空白占位图，不能据此判断页面视觉内容、场景、室内/室外或图片内容；只能依据 UI 树、包名和历史操作决策。\n")
@@ -401,7 +497,7 @@ class AgentExecutor private constructor() {
         prompt.append("2. 优先使用 UI 树中的可见文本、contentDescription、viewId、bounds/center 来定位元素。\n")
         prompt.append("3. 当前已经在目标 App 内时，不要再 OPEN_APP；直接继续界面内操作。\n")
         prompt.append("4. 需要查找对象时，先找到搜索入口；搜索框获得焦点后，用 INPUT_TEXT 输入搜索关键词。\n")
-        prompt.append("5. 需要发送/提交内容时，先点击输入框，再 INPUT_TEXT 输入正文，最后点击发送/提交按钮。\n")
+        prompt.append("5. 需要发送/提交内容时，先点击输入框，再 INPUT_TEXT 输入正文；只有安全模式允许时才点击最终发送/提交按钮。\n")
         prompt.append("6. 如果没有看到目标元素，可以 WAIT、SWIPE、BACK 或点击合理的导航入口；不要连续重复同一无效动作。\n")
         prompt.append("7. UI 树为空且没有真实截图时，不要根据空白图或想象判断当前页面；最多等待一轮，之后应 BACK 或使用可确定的系统导航恢复可操作状态。\n")
         prompt.append("8. 如果规划要求草稿模式或用户确认，不要点击最终发送/支付/提交按钮；准备好后返回 NO_ACTION。\n")

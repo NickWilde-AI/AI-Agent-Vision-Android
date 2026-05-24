@@ -1,8 +1,9 @@
 [versions]
 agp = "8.9.0"
-kotlin = "2.0.21"
+kotlin = "2.3.21"
 coreKtx = "1.13.1"
 junit = "4.13.2"
+json = "20240303"
 junitVersion = "1.1.5"
 espressoCore = "3.5.1"
 appcompat = "1.6.1"
@@ -13,6 +14,7 @@ constraintlayout = "2.1.4"
 # Coroutines & Flow
 coroutines = "1.8.0"
 lifecycle = "2.7.0"
+litertlm = "0.12.0"
 
 # Dependency Injection
 hilt = "2.50"
@@ -37,6 +39,7 @@ timber = "5.0.1"
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+json = { group = "org.json", name = "json", version.ref = "json" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
@@ -84,6 +87,9 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 # Logging
 timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
 
+# On-device LLM runtime
+litertlm-android = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
@@ -92,4 +98,3 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 ksp = { id = "com.google.devtools.ksp", version = "2.0.21-1.0.25" }
-

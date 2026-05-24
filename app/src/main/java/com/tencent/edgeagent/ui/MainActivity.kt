@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvScreenCaptureStatus: TextView
     private lateinit var btnRequestScreenCapture: TextView
     private lateinit var tvModelInfo: TextView
+    private lateinit var btnModelHealthCheck: Button
     private lateinit var tvCloudStatus: TextView
     private lateinit var tvState: TextView
     private lateinit var tvExecutionResult: TextView
@@ -106,6 +107,7 @@ class MainActivity : AppCompatActivity() {
         tvScreenCaptureStatus = findViewById(R.id.tv_screen_capture_status)
         btnRequestScreenCapture = findViewById(R.id.btn_request_screen_capture)
         tvModelInfo = findViewById(R.id.tv_model_info)
+        btnModelHealthCheck = findViewById(R.id.btn_model_health_check)
         tvCloudStatus = findViewById(R.id.tv_cloud_status)
         tvState = findViewById(R.id.tv_state)
         tvExecutionResult = findViewById(R.id.tv_execution_result)
@@ -147,6 +149,10 @@ class MainActivity : AppCompatActivity() {
         // 去授权屏幕录制
         btnRequestScreenCapture.setOnClickListener {
             requestScreenCapturePermission()
+        }
+
+        btnModelHealthCheck.setOnClickListener {
+            viewModel.runLocalModelHealthCheck()
         }
 
         // 执行自定义指令
@@ -228,6 +234,7 @@ class MainActivity : AppCompatActivity() {
         btnTest3.isEnabled = isIdle
         btnTest4.isEnabled = isIdle
         btnTest5.isEnabled = isIdle
+        btnModelHealthCheck.isEnabled = isIdle
     }
 
     // ────────────────────────────────────────────

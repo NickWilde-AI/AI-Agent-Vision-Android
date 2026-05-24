@@ -1,23 +1,28 @@
 package com.tencent.edgeagent.ui
 
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tencent.edgeagent.data.cloud.CloudConfig
 import com.tencent.edgeagent.data.cloud.CloudFallbackManager
+import com.tencent.edgeagent.data.inference.GemmaLiteRtModelEngine
 import com.tencent.edgeagent.data.inference.ILocalModelEngine
-import com.tencent.edgeagent.data.inference.MockModelEngine
+import com.tencent.edgeagent.data.inference.LocalModelEngineProvider
+import com.tencent.edgeagent.data.inference.LocalModelManager
 import com.tencent.edgeagent.data.inference.ModelInfo
 import com.tencent.edgeagent.domain.agent.AgentOrchestrator
 import com.tencent.edgeagent.domain.agent.AgentRunResult
 import com.tencent.edgeagent.domain.model.AgentResponse
 import com.tencent.edgeagent.domain.model.AgentState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 
 /**
@@ -29,7 +34,8 @@ import timber.log.Timber
 class MainViewModel : ViewModel() {
 
     private val orchestrator = AgentOrchestrator.getInstance()
-    private val localModelEngine: ILocalModelEngine = MockModelEngine.getInstance()
+    private val localModelEngine: ILocalModelEngine = LocalModelEngineProvider.getInstance()
+    private val localModelManager = LocalModelManager.getInstance()
     private val cloudFallbackManager = CloudFallbackManager.getInstance()
     private var activeCommandJob: Job? = null
 
@@ -80,11 +86,50 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    fun runLocalModelHealthCheck() {
+        if (activeCommandJob?.isActive == true) {
+            _executionResult.value = "已有任务正在执行"
+            return
+        }
+
+        activeCommandJob = viewModelScope.launch {
+            _executionResult.value = "本地模型健康检查中..."
+            val healthBitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+            try {
+                val response = withTimeout(LOCAL_MODEL_HEALTH_TIMEOUT_MS) {
+                    localModelEngine.inference(
+                        image = healthBitmap,
+                        prompt = "Local model health check. Return a safe NO_ACTION JSON response.",
+                        uiTree = "UI Tree: health_check"
+                    )
+                }
+                _lastResponse.value = response
+                _modelInfo.value = localModelManager.buildModelInfoOrFallback(localModelEngine.getModelInfo())
+                _executionResult.value = "本地模型检查完成：${response.action}，${response.inferenceTimeMs}ms"
+                Timber.i("本地模型健康检查完成: $response")
+            } catch (e: TimeoutCancellationException) {
+                _executionResult.value = "本地模型检查超时：${LOCAL_MODEL_HEALTH_TIMEOUT_MS / 1000}s"
+                Timber.e(e, "本地模型健康检查超时")
+            } catch (e: Exception) {
+                _executionResult.value = "本地模型检查失败：${e.message}"
+                Timber.e(e, "本地模型健康检查失败")
+            } finally {
+                healthBitmap.recycle()
+            }
+        }
+    }
+
     private fun warmUpLocalEngine() {
         viewModelScope.launch {
             try {
+                _modelInfo.value = localModelManager.buildModelInfoOrFallback(localModelEngine.getModelInfo())
+                if (localModelEngine is GemmaLiteRtModelEngine) {
+                    Timber.i("本地 Gemma 模型已就绪，运行时加载延迟到首次本地推理")
+                    return@launch
+                }
+
                 localModelEngine.warmUp()
-                _modelInfo.value = localModelEngine.getModelInfo()
+                _modelInfo.value = localModelManager.buildModelInfoOrFallback(localModelEngine.getModelInfo())
                 Timber.d("模型预热完成: ${_modelInfo.value}")
             } catch (e: Exception) {
                 Timber.e(e, "模型预热失败")
@@ -132,5 +177,9 @@ class MainViewModel : ViewModel() {
         super.onCleared()
         Timber.d("MainViewModel 清理")
         localModelEngine.release()
+    }
+
+    companion object {
+        private const val LOCAL_MODEL_HEALTH_TIMEOUT_MS = 180_000L
     }
 }

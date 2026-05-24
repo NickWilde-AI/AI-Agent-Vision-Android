@@ -6,7 +6,8 @@ import com.tencent.edgeagent.data.cloud.CloudFallbackManager
 import com.tencent.edgeagent.data.execution.ActionExecutor
 import com.tencent.edgeagent.data.execution.ExecutionResult
 import com.tencent.edgeagent.data.inference.ILocalModelEngine
-import com.tencent.edgeagent.data.inference.MockModelEngine
+import com.tencent.edgeagent.data.inference.LocalModelEngineProvider
+import com.tencent.edgeagent.data.trace.AgentTraceStore
 import com.tencent.edgeagent.domain.model.ActionType
 import com.tencent.edgeagent.domain.model.AgentEvent
 import com.tencent.edgeagent.domain.model.AgentIntent
@@ -30,7 +31,8 @@ class AgentOrchestrator private constructor(
     private val localModelEngine: ILocalModelEngine,
     private val cloudFallbackManager: CloudFallbackManager,
     private val actionExecutor: ActionExecutor,
-    private val agentExecutor: AgentExecutor
+    private val agentExecutor: AgentExecutor,
+    private val traceStore: AgentTraceStore
 ) {
 
     val agentState: StateFlow<AgentState> = stateMachine.currentState
@@ -93,21 +95,70 @@ class AgentOrchestrator private constructor(
         onResponse: (AgentResponse) -> Unit
     ): AgentRunResult {
         Timber.i("[AgentFlow] local single-round mode intent=${intent.type}")
-        val screenData = captureRealScreenData() ?: createFallbackScreenData()
-        stateMachine.handleEvent(AgentEvent.PerceptionComplete(screenData))
+        val traceId = traceStore.startSession(userInput)
+        var screenData: ScreenData? = null
+        return try {
+            val currentScreenData = captureRealScreenData() ?: createFallbackScreenData()
+            screenData = currentScreenData
+            stateMachine.handleEvent(AgentEvent.PerceptionComplete(currentScreenData))
 
-        val localResponse = localModelEngine.inference(
-            image = screenData.bitmap,
-            prompt = userInput,
-            uiTree = screenData.uiTreeText
-        )
-        onResponse(localResponse)
-        stateMachine.handleEvent(AgentEvent.LocalReasoningComplete(localResponse))
+            val localResponse = localModelEngine.inference(
+                image = currentScreenData.bitmap,
+                prompt = userInput,
+                uiTree = currentScreenData.uiTreeText
+            )
+            onResponse(localResponse)
+            stateMachine.handleEvent(AgentEvent.LocalReasoningComplete(localResponse))
 
-        val finalResponse = resolveFinalResponse(userInput, intent, screenData, localResponse, onProgress, onResponse)
-        onProgress("执行：${finalResponse.action}")
+            val finalResponse = resolveFinalResponse(
+                userInput,
+                intent,
+                currentScreenData,
+                localResponse,
+                onProgress,
+                onResponse
+            )
+            onProgress("执行：${finalResponse.action}")
 
-        return executeAction(finalResponse)
+            val result = executeAction(finalResponse)
+            val resultMessage = when (result) {
+                is AgentRunResult.Success -> result.message
+                is AgentRunResult.Failure -> result.message
+            }
+            val executionResult = when (result) {
+                is AgentRunResult.Success -> ExecutionResult.Success(resultMessage)
+                is AgentRunResult.Failure -> ExecutionResult.Failure(resultMessage)
+            }
+
+            traceStore.recordStep(
+                sessionId = traceId,
+                round = 1,
+                screenData = currentScreenData,
+                response = finalResponse,
+                executionResult = executionResult,
+                reflection = null,
+                note = "local_single_round"
+            )
+            traceStore.finishSession(
+                sessionId = traceId,
+                success = result is AgentRunResult.Success,
+                reason = resultMessage
+            )
+            result
+        } catch (e: Exception) {
+            val message = e.message ?: "本地单轮执行异常"
+            traceStore.recordStep(
+                sessionId = traceId,
+                round = 1,
+                screenData = screenData,
+                response = null,
+                executionResult = ExecutionResult.Failure(message),
+                reflection = null,
+                note = "local_single_round_exception"
+            )
+            traceStore.finishSession(traceId, success = false, reason = message)
+            throw e
+        }
     }
 
     private suspend fun resolveFinalResponse(
@@ -201,10 +252,11 @@ class AgentOrchestrator private constructor(
                 instance ?: AgentOrchestrator(
                     stateMachine = AgentStateMachine.getInstance(),
                     intentRouter = IntentRouter.getInstance(),
-                    localModelEngine = MockModelEngine.getInstance(),
+                    localModelEngine = LocalModelEngineProvider.getInstance(),
                     cloudFallbackManager = CloudFallbackManager.getInstance(),
                     actionExecutor = ActionExecutor.getInstance(),
-                    agentExecutor = AgentExecutor.getInstance()
+                    agentExecutor = AgentExecutor.getInstance(),
+                    traceStore = AgentTraceStore.getInstance()
                 ).also { instance = it }
             }
         }

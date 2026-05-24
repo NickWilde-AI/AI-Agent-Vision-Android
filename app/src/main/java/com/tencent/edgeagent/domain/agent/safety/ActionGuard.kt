@@ -49,10 +49,8 @@ class ActionGuard private constructor() {
 
         val click = response.actionParams as? ActionParams.Click ?: return false
         val description = click.description.lowercase()
-        val highRiskKeyword = HIGH_RISK_KEYWORDS.any { keyword ->
-            description.contains(keyword) || uiTreeText?.contains("label='$keyword'") == true ||
-                uiTreeText?.contains("text='$keyword'") == true || uiTreeText?.contains("desc='$keyword'") == true
-        }
+        val highRiskKeyword = HIGH_RISK_KEYWORDS.any { keyword -> description.contains(keyword) } ||
+            isClickInsideHighRiskNode(click.x, click.y, uiTreeText)
 
         if (!highRiskKeyword) return false
 
@@ -67,10 +65,25 @@ class ActionGuard private constructor() {
         return false
     }
 
+    private fun isClickInsideHighRiskNode(x: Int, y: Int, uiTreeText: String?): Boolean {
+        if (uiTreeText.isNullOrBlank()) return false
+        return uiTreeText.lineSequence()
+            .filter { line -> HIGH_RISK_KEYWORDS.any { keyword -> line.contains(keyword, ignoreCase = true) } }
+            .any { line ->
+                val bounds = BOUNDS_REGEX.find(line)?.groupValues ?: return@any false
+                val left = bounds[1].toIntOrNull() ?: return@any false
+                val top = bounds[2].toIntOrNull() ?: return@any false
+                val right = bounds[3].toIntOrNull() ?: return@any false
+                val bottom = bounds[4].toIntOrNull() ?: return@any false
+                x in left..right && y in top..bottom
+            }
+    }
+
     companion object {
         private val HIGH_RISK_KEYWORDS = listOf(
             "发送", "send", "支付", "付款", "下单", "提交", "确认", "删除", "转账", "购买"
         )
+        private val BOUNDS_REGEX = Regex("bounds=\\[(\\d+),(\\d+),(\\d+),(\\d+)]")
 
         @Volatile
         private var instance: ActionGuard? = null

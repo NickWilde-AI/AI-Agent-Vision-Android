@@ -2,15 +2,16 @@
 
 <div align="center">
 
-**端侧优先 · 隐私合规 · 视觉理解 · 多 Agent 协作**
+**端侧模型 · 云端兜底 · 屏幕理解 · 多 Agent 协作 · 安全可控**
 
 一个面向真实手机环境的 Android Agent。  
 它能够在用户授权范围内理解屏幕、规划任务、执行操作，并在高风险动作前停下来等待确认。
 
 [![Android](https://img.shields.io/badge/Android-7.0%2B-green.svg)](https://developer.android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-blue.svg)](https://kotlinlang.org)
-[![Model](https://img.shields.io/badge/Vision-Qwen--VL--Max-blueviolet.svg)](https://help.aliyun.com/zh/model-studio/)
-[![Status](https://img.shields.io/badge/Status-Active%20Development-orange.svg)](#当前状态)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.21-blue.svg)](https://kotlinlang.org)
+[![Local Model](https://img.shields.io/badge/Local-Gemma%204%20E2B-purple.svg)](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
+[![Runtime](https://img.shields.io/badge/Runtime-LiteRT--LM%200.12.0-orange.svg)](https://github.com/google-ai-edge/LiteRT-LM)
+[![Cloud](https://img.shields.io/badge/Cloud-Qwen--VL--Max-blueviolet.svg)](https://help.aliyun.com/zh/model-studio/)
 
 </div>
 
@@ -18,16 +19,18 @@
 
 ## 项目简介
 
-VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是简单的自动点击脚本，也不是让模型自由操作手机的 Demo，而是一套面向正式产品形态设计的手机智能体基座。
+VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是简单的自动点击脚本，也不是让模型自由操作手机的演示工程，而是一套面向正式产品形态设计的手机智能体基座。
 
-项目当前采用：
+当前项目采用：
 
-- **AccessibilityService** 作为操作执行层
-- **MediaProjection** 作为屏幕视觉输入
-- **结构化 UI 树** 作为可解释的页面状态
-- **Qwen-VL-Max** 作为默认云端视觉模型
-- **Local RAG** 注入本地策略和安全记忆
-- **Planner / Reflection / ActionGuard** 组成多 Agent 决策链路
+- **AccessibilityService** 执行点击、滑动、输入、返回、Home、打开 App 等动作。
+- **MediaProjection** 提供屏幕截图。
+- **结构化 UI 树** 提供可解释的页面状态。
+- **Gemma 4 E2B + LiteRT-LM** 提供 Android 本地模型推理能力。
+- **Qwen-VL-Max** 提供云端视觉模型兜底。
+- **Local RAG** 注入本地策略、安全约束和失败经验。
+- **Planner / Reflection / ActionGuard** 组成多 Agent 决策链路。
+- **AgentTrace** 记录失败日志和回放材料。
 
 目标是让手机 Agent 具备三件事：
 
@@ -37,52 +40,37 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
 
 ---
 
-## 核心特性
+## 当前能力
 
-- **真实手机操作**  
-  基于无障碍服务执行点击、滑动、输入、返回、Home、最近任务、打开 App。
-
-- **视觉 + UI 树双通道感知**  
-  同时使用屏幕截图和 Accessibility UI 树，提取 `bounds`、`center`、可点击元素和结构化 `UiNode`。
-
-- **多轮反馈闭环**  
-  `观察屏幕 -> 决策单步动作 -> 执行 -> 等待页面变化 -> 再次观察`。
-
-- **本地 RAG 策略库**  
-  内置微信草稿、高风险确认、系统设置、浏览器搜索等策略，减少模型自由发挥。
-
-- **多 Agent 协作**  
-  `PlannerAgent` 负责规划，`ReflectionAgent` 负责反思，`ActionGuard` 负责安全拦截。
-
-- **高风险动作保护**  
-  默认阻止自动发送、支付、下单、删除、转账、提交等不可逆动作。
-
-- **千问视觉模型接入**  
-  默认使用阿里云百炼 `qwen-vl-max` 处理屏幕理解和动作决策。
+| 模块 | 状态 | 说明 |
+| --- | --- | --- |
+| 无障碍执行 | 已接入 | 点击、长按、滑动、返回、Home、最近任务、文本输入、打开 App |
+| 屏幕感知 | 已接入 | 截图、UI 树、结构化 `UiNode` |
+| 本地模型 | 已跑通 | Gemma 4 E2B + LiteRT-LM，真机健康检查成功 |
+| 云端视觉 | 已接入 | 默认阿里云百炼 `qwen-vl-max` |
+| Agent 编排 | 已接入 | `AgentOrchestrator` 统一调度 |
+| 多轮闭环 | 已接入 | 每轮观察、决策、执行、验证 |
+| 本地 RAG | 已接入 | JSONL 持久化和策略检索 |
+| App 策略库 | 已接入 | 微信草稿、浏览器、系统设置 |
+| AgentTrace | 已接入 | JSONL 日志和最新会话回放 |
+| 安全保护 | 已接入 | 高风险最终动作拦截 |
+| 真机验证 | 进行中 | Redmi K60 已完成本地模型烟测 |
 
 ---
 
-## 适用场景
+## 安全边界
 
-当前适合优先验证：
+VisionAgent Android 默认不自动执行以下高风险动作：
 
-- 打开 App
-- 控制系统返回、Home、最近任务
-- 页面滑动和点击
-- 系统设置跳转
-- 浏览器搜索
-- 设备控制
-- 微信联系人搜索和草稿输入
+- 发送消息
+- 支付
+- 下单
+- 删除
+- 转账
+- 提交订单
+- 不可逆确认
 
-当前不建议自动执行：
-
-- 自动发送微信消息
-- 自动下单
-- 自动支付
-- 自动删除内容
-- 自动提交敏感表单
-
-微信相关任务当前产品边界：
+微信相关任务当前边界：
 
 ```text
 打开微信 -> 搜索联系人 -> 进入聊天页 -> 输入草稿 -> 停止，等待用户手动发送
@@ -93,32 +81,24 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
 ## 架构概览
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                    Presentation Layer                        │
-│              MainActivity / MainViewModel                   │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                      Domain Layer                            │
-│  AgentOrchestrator                                          │
-│  AgentExecutor                                              │
-│  PlannerAgent / ReflectionAgent / ActionGuard               │
-│  AgentStateMachine / IntentRouter                           │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                       Data Layer                             │
-│  LocalRagEngine                                             │
-│  CloudFallbackManager / AliyunClient                        │
-│  UITreeExtractor / ScreenCaptureManager                     │
-│  ActionExecutor / GestureExecutor                           │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                      Service Layer                           │
-│  EdgeAgentAccessibilityService                              │
-│  ScreenCaptureService                                       │
-└─────────────────────────────────────────────────────────────┘
+Presentation Layer
+  MainActivity / MainViewModel
+        ↓
+Domain Layer
+  AgentOrchestrator
+  AgentExecutor
+  PlannerAgent / ReflectionAgent / ActionGuard
+  AgentStateMachine / IntentRouter
+        ↓
+Data Layer
+  LocalModelEngine / LocalRagEngine / AgentTraceStore
+  CloudFallbackManager / AliyunClient
+  UITreeExtractor / ScreenCaptureManager
+  ActionExecutor / GestureExecutor
+        ↓
+Service Layer
+  EdgeAgentAccessibilityService
+  ScreenCaptureService
 ```
 
 核心执行链路：
@@ -129,7 +109,7 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
   -> LocalRagEngine 检索本地策略
   -> 捕获屏幕截图和 UI 树
   -> ReflectionAgent 注入避错提示
-  -> Qwen-VL-Max 返回单步动作
+  -> 本地模型或 Qwen-VL-Max 返回单步动作
   -> ActionGuard 安全拦截
   -> ActionExecutor 执行动作
   -> 再次观察屏幕
@@ -137,62 +117,36 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
 
 ---
 
-## 当前状态
-
-| 模块 | 状态 | 说明 |
-| --- | --- | --- |
-| 无障碍执行 | 已接入 | 点击、长按、滑动、返回、Home、最近任务、文本输入、打开 App |
-| 屏幕感知 | 已接入 | 截图、UI 树、结构化 `UiNode` |
-| 云端视觉 | 已接入 | 默认阿里云百炼 `qwen-vl-max` |
-| Agent 编排 | 已接入 | `AgentOrchestrator` 统一调度 |
-| 多轮闭环 | 已接入 | 每轮观察、决策、执行、验证 |
-| 本地 RAG | 基础版已接入 | 内置策略检索 |
-| 多 Agent | 基础版已接入 | Planner / Reflection / ActionGuard |
-| 安全保护 | 基础版已接入 | 高风险最终动作拦截 |
-| 真机产品化验证 | 进行中 | 需要更多设备和 ROM 验证 |
-
----
-
 ## 快速开始
 
-### 环境要求
+环境要求：
 
 - Android Studio
 - JDK 17
 - Android SDK
 - Android 7.0+ 真机或模拟器
-- Kotlin 2.0.21
+- 推荐真机测试，无障碍和屏幕录制在模拟器上的行为不完全可靠
 
-### 配置 API Key
-
-在项目根目录 `local.properties` 中写入：
+配置 `local.properties`：
 
 ```properties
 sdk.dir=/path/to/Android/sdk
 ALIYUN_API_KEY=your-api-key
 ```
 
-`local.properties` 已被 `.gitignore` 忽略，不应提交。
-
-### 构建
+构建、测试、安装：
 
 ```bash
 ./gradlew :app:assembleDebug
-```
-
-### 测试
-
-```bash
 ./gradlew :app:testDebugUnitTest
-```
-
-### 安装
-
-```bash
 ./gradlew :app:installDebug
 ```
 
-### 权限
+完整验证：
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+```
 
 首次运行需要手动开启：
 
@@ -202,54 +156,62 @@ ALIYUN_API_KEY=your-api-key
 
 ---
 
-## 技术栈
+## 本地模型
 
-- **语言**：Kotlin
-- **架构**：Clean Architecture + Domain Agent Layer
-- **异步**：Coroutines + Flow
-- **UI**：XML + ViewModel
-- **视觉模型**：Qwen-VL-Max
-- **本地策略**：Local RAG
-- **系统能力**：AccessibilityService + MediaProjection
-- **日志**：Timber
+当前端侧模型链路：
+
+```text
+VisionAgent APK
+  ├─ LiteRT-LM 0.12.0 运行库
+  └─ 读取手机 App 私有目录中的 Gemma 4 E2B 模型文件
+```
+
+模型文件不打进 APK，部署路径为：
+
+```text
+/data/data/com.tencent.edgeagent/files/models/gemma-4-e2b-it/gemma-4-E2B-it.litertlm
+```
+
+推送脚本：
+
+```bash
+./push_gemma_model.sh
+```
+
+真机健康检查已经成功：
+
+```text
+source=LOCAL_VLM
+action=NO_ACTION
+confidence=0.95
+inferenceTimeMs=18983
+```
 
 ---
 
 ## 文档导航
 
-| 文档 | 说明 |
-| --- | --- |
-| [产品文档](docs/ROADMAP.md) | 产品愿景、用户场景、版本规划和上线目标 |
-| [架构设计](docs/ARCHITECTURE.md) | 当前真实架构、模块职责和演进方向 |
-| [上手与测试](docs/GETTING_STARTED.md) | 构建、权限、真机验证和常见问题 |
-| [开发指南](AI_DEVELOPMENT_GUIDE.md) | 代码规范、调试方法和协作规则 |
-| [API 示例](docs/API_EXAMPLES.md) | RAG、多 Agent、云端模型和安全拦截示例 |
-| [AI 协作 Prompt](docs/AI_BOOTSTRAP_PROMPT.md) | 给 AI 开发助手使用的上下文 Prompt |
-
-历史记录：
+当前保留 6 个长期维护入口：
 
 | 文档 | 说明 |
 | --- | --- |
-| [Phase 1](docs/PHASE1_SUMMARY.md) | 架构基座 |
-| [Phase 2](docs/PHASE2_SUMMARY.md) | 无障碍感知与执行 |
-| [Phase 3](docs/PHASE3_SUMMARY.md) | 动作执行器 |
-| [Phase 4](docs/PHASE4_SUMMARY.md) | 云端模型接入 |
-| [Phase 5](docs/PHASE5_SUMMARY.md) | 多轮 Agent 闭环 |
+| [README.md](README.md) | 项目门面、能力概览、快速开始 |
+| [PROJECT_MEMORY.md](PROJECT_MEMORY.md) | 项目长期记忆、设备状态、当前任务线 |
+| [docs/PRODUCT.md](docs/PRODUCT.md) | 产品定位、用户场景、版本规划、能力边界 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 当前真实架构、模块职责、主流程 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发运行手册、API 示例、调试命令、AI 协作上下文 |
+| [docs/HISTORY.md](docs/HISTORY.md) | Phase 1-5 历史记录和演进说明 |
 
 ---
 
-## 产品路线
+## 当前优先级
 
-近期重点：
-
-1. 失败日志和回放系统。
-2. 高风险动作确认 UI。
-3. 微信草稿状态机。
-4. RAG 持久化和失败样本检索。
-5. 浏览器、系统设置等稳定 App 策略。
-6. 真机兼容性评测。
-
-完整产品规划见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+1. 将本地模型健康检查写入 AgentTrace。
+2. 增强模型状态 UI：文件就绪、运行时已加载、推理成功、云端兜底中、失败原因。
+3. 继续强化微信草稿状态机，确保不自动点击最终发送。
+4. 扩展 App 专项策略库，优先覆盖浏览器、系统设置、美团、电话、微信。
+5. 完成更多真机任务走查和失败样本沉淀。
+6. 推进多 Agent 协作：规划、视觉/感知、执行、反思、安全。
 
 ---
 
@@ -263,19 +225,6 @@ VisionAgent Android 的设计目标不是绕过第三方 App 的安全限制，�
 - 高风险动作确认优先。
 - 可解释和可回放优先。
 - 隐私敏感任务本地优先。
-
----
-
-## 验证状态
-
-最近一次本地验证：
-
-```text
-./gradlew :app:assembleDebug :app:testDebugUnitTest
-BUILD SUCCESSFUL
-```
-
-真机端到端效果取决于设备、ROM、权限状态和目标 App 页面结构。
 
 ---
 

@@ -1,6 +1,9 @@
 package com.tencent.edgeagent
 
 import android.app.Application
+import com.tencent.edgeagent.data.inference.LocalModelManager
+import com.tencent.edgeagent.data.rag.LocalRagEngine
+import com.tencent.edgeagent.data.trace.AgentTraceStore
 import timber.log.Timber
 
 /**
@@ -19,6 +22,10 @@ class EdgeAgentApplication : Application() {
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
+
+        LocalRagEngine.getInstance().initialize(this)
+        AgentTraceStore.getInstance().initialize(this)
+        LocalModelManager.getInstance().initialize(this)
         
         Timber.d("EdgeAgentApplication 初始化完成")
     }

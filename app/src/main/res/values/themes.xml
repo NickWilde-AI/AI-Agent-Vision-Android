@@ -4,7 +4,6 @@
         <item name="android:statusBarColor">@color/va_bg_dark</item>
         <item name="android:navigationBarColor">@color/va_bg_dark</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
         <item name="android:textColorPrimary">@color/va_text_primary</item>
         <item name="android:textColorSecondary">@color/va_text_secondary</item>
         <item name="colorPrimary">@color/va_accent</item>

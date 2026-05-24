@@ -1,13 +1,13 @@
 # VisionAgent Android 架构设计
 
-本文档描述当前真实架构、模块职责和演进方向。若代码和本文档不一致，以代码为准并及时更新文档。
+本文档描述当前真实架构、模块职责、主流程和演进方向。若代码和本文档不一致，以代码为准并及时更新文档。
 
 ## 架构目标
 
 VisionAgent Android 的核心目标是构建安全可控的 Android Agent 主链路：
 
 ```text
-观察屏幕 -> 规划任务 -> 检索本地策略 -> 单步决策 -> 安全检查 -> 执行动作 -> 再次观察
+观察屏幕 -> 规划任务 -> 检索本地策略 -> 模型决策 -> 安全检查 -> 执行动作 -> 再次观察
 ```
 
 设计重点：
@@ -16,7 +16,8 @@ VisionAgent Android 的核心目标是构建安全可控的 Android Agent 主链
 - 每轮只执行一个最小动作。
 - 复杂 App 使用策略约束。
 - 高风险动作必须被拦截或确认。
-- 所有失败都应该可记录、可回放、可沉淀为策略。
+- 失败必须可记录、可回放、可沉淀为策略。
+- 本地模型优先用于端侧能力验证，云端模型作为稳定兜底。
 
 ## 分层结构
 
@@ -33,9 +34,15 @@ Domain Layer
   PlannerAgent
   ReflectionAgent
   ActionGuard
+  AppStrategyRegistry
 
 Data Layer
+  LocalModelEngineProvider
+  GemmaLiteRtModelEngine
+  LocalModelManager
+  AgentResponseJsonParser
   LocalRagEngine
+  AgentTraceStore
   CloudFallbackManager
   AliyunClient / DeepSeekClient
   UITreeExtractor
@@ -50,6 +57,8 @@ Service Layer
 
 ## 主流程
 
+### 云端多轮 Agent 流程
+
 ```text
 用户输入
   -> MainViewModel.executeCommand()
@@ -63,10 +72,31 @@ Service Layer
   -> buildPrompt(plan + rag + reflection + uiTree)
   -> CloudFallbackManager.inference()
   -> ActionGuard.guard()
+  -> AppStrategyRegistry.apply()
   -> ActionExecutor.execute()
+  -> AgentTraceStore.recordStep()
   -> captureScreen()
   -> 下一轮
 ```
+
+### 本地模型流程
+
+```text
+App 启动
+  -> LocalModelManager 检测 Gemma 模型文件
+  -> LocalModelEngineProvider 选择 GemmaLiteRtModelEngine
+  -> UI 显示本地模型已就绪
+
+首次本地推理
+  -> GemmaLiteRtModelEngine.warmUp()
+  -> LiteRT-LM 加载 gemma-4-E2B-it.litertlm
+  -> Engine.createConversation()
+  -> 模型输出单个 JSON 动作
+  -> AgentResponseJsonParser.parse()
+  -> AgentResponse
+```
+
+完整模型运行时加载延迟到首次本地推理，避免 App 启动时被 2.4GB 模型加载阻塞。
 
 ## 核心模块
 
@@ -86,9 +116,9 @@ Service Layer
 - 实现多轮观察和执行循环。
 - 每轮构建包含 RAG、规划、反思和 UI 树的 prompt。
 - 接收模型单步动作。
-- 调用 ActionGuard。
+- 调用 ActionGuard 和 App 专项策略。
 - 调用 ActionExecutor。
-- 保存本轮对话历史。
+- 记录 AgentTrace。
 
 ### PlannerAgent
 
@@ -115,22 +145,6 @@ Service Layer
 - `REQUIRE_CONFIRMATION`
 - `DRAFT_ONLY`
 
-### LocalRagEngine
-
-职责：
-
-- 提供本地策略检索。
-- 当前为无依赖关键词检索。
-- 后续可替换为 Room + Embedding + 向量检索。
-
-当前内置策略：
-
-- 高风险动作必须确认。
-- 微信只填草稿。
-- 微信联系人搜索路径。
-- 系统设置策略。
-- 浏览器搜索策略。
-
 ### ReflectionAgent
 
 职责：
@@ -151,6 +165,69 @@ Service Layer
 - 微信草稿模式下禁止点击发送。
 - 将被拦截动作转为 `NO_ACTION`。
 
+### AppStrategyRegistry
+
+职责：
+
+- 为不同 App 和任务类型加载专项策略。
+- 在通用模型输出之后执行二次校验。
+- 将高风险或不符合当前状态机的动作改写为安全动作。
+
+当前策略：
+
+- `WechatStrategy`
+- `BrowserStrategy`
+- `SystemSettingsStrategy`
+
+### LocalRagEngine
+
+职责：
+
+- 提供本地策略检索。
+- 将策略和失败经验注入 prompt。
+- 支持 JSONL 持久化。
+
+当前内置策略：
+
+- 高风险动作必须确认。
+- 微信只填草稿。
+- 微信联系人搜索路径。
+- 系统设置策略。
+- 浏览器搜索策略。
+
+### AgentTraceStore
+
+职责：
+
+- 记录任务会话。
+- 记录每轮屏幕状态、模型输出、执行结果和反思信息。
+- 支持最新会话可读化回放。
+
+当前配套命令：
+
+```bash
+./view_logs.sh --replay
+```
+
+### GemmaLiteRtModelEngine
+
+职责：
+
+- 使用 LiteRT-LM 加载 Gemma 4 E2B。
+- 构造本地 Agent prompt。
+- 运行本地推理。
+- 将模型输出交给 `AgentResponseJsonParser`。
+- 本地推理失败时安全返回 `NO_ACTION`。
+
+当前真机结果：
+
+```text
+source=LOCAL_VLM
+action=NO_ACTION
+confidence=0.95
+inferenceTimeMs=18983
+```
+
 ### UITreeExtractor
 
 职责：
@@ -168,6 +245,15 @@ Service Layer
 - 使用 ImageReader 持续监听屏幕帧。
 - 缓存最新截图。
 - 为 Agent 提供稳定截图来源。
+
+### ActionExecutor
+
+职责：
+
+- 将 `AgentResponse` 转换为真实 Android 操作。
+- 执行点击、长按、滑动、输入、返回、Home、最近任务、打开 App、设备控制、等待。
+- 校验坐标边界。
+- 返回 `ExecutionResult`。
 
 ## 状态机
 
@@ -202,6 +288,12 @@ Service Layer
 禁止：点击发送
 ```
 
+本地模型失败默认安全降级：
+
+```text
+加载失败 / 推理失败 / JSON 解析失败 -> NO_ACTION
+```
+
 ## 数据模型
 
 关键模型：
@@ -216,35 +308,39 @@ Service Layer
 - `RagHit`
 - `UiNode`
 - `UiTreeSnapshot`
+- `AgentTraceEvent`
+- `LocalModelStatus`
 
 ## 当前限制
 
-1. RAG 仍是关键词检索，不是向量检索。
-2. 没有持久化失败轨迹。
-3. 没有产品级确认 UI。
-4. App 专项策略还未状态机化。
-5. 本地 VLM 未接入。
-6. 真机兼容性需要更多设备验证。
+1. RAG 已有 JSONL 持久化，但还不是向量检索。
+2. 本地模型健康检查尚未写入 AgentTrace。
+3. 高风险确认 UI 还不是完整产品态。
+4. App 专项策略库仍需扩展状态机和测试集。
+5. LiteRT-LM 在当前设备上会出现 Dispatch/NPU 加速库缺失日志，但已能回退并完成推理。
+6. 真机兼容性需要更多设备和 ROM 验证。
 
 ## 演进方向
 
 短期：
 
-- `AgentTrace` 失败日志。
-- `WechatStrategy` 草稿状态机。
+- 本地模型健康检查写入 AgentTrace。
+- 模型运行状态 UI。
+- `WechatStrategy` 草稿状态机继续强化。
 - 高风险确认 UI。
-- Browser 和 Settings 专项策略。
+- Browser 和 Settings 专项策略完善。
 
 中期：
 
 - Room 持久化 RAG。
-- 失败样本检索。
+- 向量检索。
 - App 策略库。
 - 任务评测集。
+- 本地 OCR。
 
 长期：
 
-- 本地视觉模型。
-- 本地 OCR。
+- 更多本地模型对比。
 - 用户偏好记忆。
 - 跨 App 任务编排。
+- 准系统级 Agent 体验。
