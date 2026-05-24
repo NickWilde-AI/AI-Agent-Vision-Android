@@ -126,7 +126,7 @@ class AgentExecutor private constructor() {
 
                 val localObservation = localVisionEngine.observe(screenData)
                 val strategyHints = strategyRegistry.promptHints(plan, screenData, conversationHistory)
-                val localResponse = buildDeterministicResponseIfNeeded(
+                val deterministicFallback = buildDeterministicFallbackIfNeeded(
                     userGoal,
                     screenData,
                     currentRound,
@@ -134,7 +134,7 @@ class AgentExecutor private constructor() {
                 )
 
                 // 构建提示词（包含历史对话）
-                val rawResponse = localResponse ?: run {
+                val rawResponse = run {
                     val prompt = buildPrompt(
                         userGoal = userGoal,
                         plan = plan,
@@ -147,11 +147,21 @@ class AgentExecutor private constructor() {
                     )
 
                     // 调用 LLM 分析当前屏幕
-                    cloudManager.inference(
-                        image = screenData.bitmap,
-                        prompt = prompt,
-                        uiTree = screenData.uiTreeText
-                    )
+                    runCatching {
+                        cloudManager.inference(
+                            image = screenData.bitmap,
+                            prompt = prompt,
+                            uiTree = screenData.uiTreeText
+                        )
+                    }.getOrElse { error ->
+                        if (deterministicFallback != null) {
+                            Timber.w(error, "[AgentTask] model decision failed, using deterministic fallback")
+                            onProgress("[$currentRound/$maxRounds] 模型决策失败，使用安全兜底：${error.message}")
+                            deterministicFallback
+                        } else {
+                            throw error
+                        }
+                    }
                 }
                 val guardedResponse = when (val guard = actionGuard.guard(plan, rawResponse, screenData.currentPackage, screenData.uiTreeText)) {
                     is GuardResult.Allowed -> guard.response
@@ -301,13 +311,12 @@ class AgentExecutor private constructor() {
     }
     
     /**
-     * 确定性首步路由。
+     * 确定性兜底路由。
      *
-     * 只处理“当前还在 VisionAgent 自己页面，但用户目标明显是打开某个 App/进入微信发消息”的场景。
-     * 这样可以避免云端模型被本 App 的快捷按钮误导，后续进入目标 App 后仍然走
-     * “屏幕捕获 → UI 树/坐标分析 → 无障碍执行”的闭环。
+     * 模型仍然拥有第一决策权；只有云端决策失败，或目标 App 已进入但连续不可观测时，
+     * 才使用这个低风险兜底，避免任务直接中断。
      */
-    private fun buildDeterministicResponseIfNeeded(
+    private fun buildDeterministicFallbackIfNeeded(
         userGoal: String,
         screenData: ScreenData,
         currentRound: Int,
@@ -335,7 +344,7 @@ class AgentExecutor private constructor() {
         if (screenData.currentPackage != "com.tencent.edgeagent") return null
 
         if (packageName == null) return null
-        Timber.i("[AgentTask] deterministic OPEN_APP package=$packageName round=$currentRound goal=$userGoal")
+        Timber.i("[AgentTask] deterministic fallback OPEN_APP package=$packageName round=$currentRound goal=$userGoal")
 
         return AgentResponse(
             source = InferenceSource.LOCAL_RAG,

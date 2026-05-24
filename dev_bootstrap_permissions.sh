@@ -174,6 +174,23 @@ PY
   return "$result"
 }
 
+wake_device() {
+  adb_cmd shell svc power stayon true >/dev/null 2>&1 || true
+  adb_cmd shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
+  adb_cmd shell wm dismiss-keyguard >/dev/null 2>&1 || true
+}
+
+warn_if_locked() {
+  local window_state
+  window_state="$(adb_cmd shell dumpsys window 2>/dev/null | grep -E "mCurrentFocus|mDreamingLockscreen" | tail -n 6 || true)"
+  if echo "$window_state" | grep -q "mDreamingLockscreen=true"; then
+    echo "Device is still on lockscreen. Unlock the test phone once before UI-triggered Agent tests."
+    echo "$window_state"
+    return 1
+  fi
+  return 0
+}
+
 bootstrap_screen_capture() {
   adb_cmd shell am start -n "$MAIN_ACTIVITY" >/dev/null
   sleep 1
@@ -201,6 +218,9 @@ adb_cmd wait-for-device
 echo "Device:"
 adb_cmd devices -l | sed -n '1,3p'
 
+echo "Wake device..."
+wake_device
+
 echo "Enable accessibility service..."
 enable_accessibility
 
@@ -214,6 +234,7 @@ put_appop RUN_ANY_IN_BACKGROUND allow
 echo "Start VisionAgent..."
 adb_cmd shell am start -n "$MAIN_ACTIVITY" >/dev/null
 sleep 1
+warn_if_locked || true
 
 if [ "$ENABLE_SCREEN_CAPTURE" = "1" ]; then
   echo "Try MediaProjection consent automation..."

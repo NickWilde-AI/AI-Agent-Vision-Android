@@ -112,6 +112,7 @@ adb logcat | grep -E "AgentTask|PlannerAgent|ReflectionAgent|ActionGuard|ActionE
 - 脚本只负责开启无障碍、设置调试 appops、尝试完成屏幕录制授权弹窗，不通过 ADB 执行业务任务。
 - 业务任务必须从 App 内由 `AgentOrchestrator`、千问云端模型、本地策略或本地模型触发。
 - `MediaProjection` 是 Android 的敏感授权，普通 App 不能真正静默授权；脚本只能在测试机上自动点击系统授权弹窗。如果 ROM 拦截，仍需要一次人工确认。
+- 如果测试机仍停在锁屏或通知遮罩，脚本会提示先解锁；安全锁屏不能由普通开发脚本绕过。
 
 回放最新 AgentTrace：
 
@@ -209,7 +210,7 @@ local_models/gemma-4-e2b-it/gemma-4-E2B-it.litertlm
 | --- | --- | --- |
 | UI | `app/src/main/java/com/tencent/edgeagent/ui` | 命令输入、权限状态、执行进度展示 |
 | 编排 | `domain/agent/AgentOrchestrator.kt` | 接收 UI 命令，选择本地或多轮 Agent 流程 |
-| L1 路由 | `domain/agent/L1CommandRouter.kt` | 低风险系统任务确定性映射，不调用模型 |
+| L1 兜底 | `domain/agent/L1CommandRouter.kt` | 模型失败时的低风险系统任务确定性兜底 |
 | 多轮执行 | `domain/agent/AgentExecutor.kt` | 屏幕观察、模型决策、动作执行、反馈循环 |
 | Planner | `domain/agent/multi/PlannerAgent.kt` | 任务分类、目标包名、安全模式、RAG 检索 |
 | Reflection | `domain/agent/multi/ReflectionAgent.kt` | 分析失败、重复动作、不可观测状态 |
@@ -488,17 +489,18 @@ git push origin main
 
 当前原则：
 1. 每轮只执行一个最小动作。
-2. L1 低风险任务优先走确定性路由。
-3. 复杂 App 任务必须使用策略约束。
-4. 禁止自动执行发送、支付、下单、删除、转账、提交等高风险最终动作。
-5. 微信任务只允许填草稿，不允许自动点击发送。
-6. 截图和 UI 树都不可用时，不能猜测页面内容。
-7. 新增策略必须可测试、可解释、可回放。
-8. 本地模型失败必须安全降级为 NO_ACTION。
+2. 产品任务必须由 App 内 Agent / 模型优先决策，ADB 只做开发脚手架。
+3. L1 低风险确定性能力只作为模型失败或不可观测状态下的兜底。
+4. 复杂 App 任务必须使用策略约束。
+5. 禁止自动执行发送、支付、下单、删除、转账、提交等高风险最终动作。
+6. 微信任务只允许填草稿，不允许自动点击发送。
+7. 截图和 UI 树都不可用时，不能猜测页面内容。
+8. 新增策略必须可测试、可解释、可回放。
+9. 本地模型失败必须安全降级为 NO_ACTION。
 
 核心模块：
 - AgentOrchestrator：UI 到 Agent 的统一入口。
-- L1CommandRouter：调音量、Home、打开相机、Wi-Fi 设置等确定性低风险任务。
+- L1CommandRouter：调音量、Home、打开相机、Wi-Fi 设置等低风险兜底任务。
 - AgentExecutor：多轮观察、决策、执行循环。
 - PlannerAgent：任务分类、目标包名、安全模式、RAG 检索。
 - ReflectionAgent：失败、重复、等待、不可观测状态分析。

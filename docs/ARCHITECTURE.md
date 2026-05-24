@@ -7,14 +7,14 @@
 VisionAgent Android 的核心目标是构建安全可控的 Android Agent 主链路：
 
 ```text
-低风险确定性路由 -> 观察屏幕 -> 规划任务 -> 检索本地策略 -> 模型决策 -> 安全检查 -> 执行动作 -> 再次观察
+观察屏幕 -> 规划任务 -> 检索本地策略 -> 模型决策 -> 安全检查 -> 执行动作 -> 再次观察
 ```
 
 设计重点：
 
 - 不让模型自由执行完整任务。
 - 每轮只执行一个最小动作。
-- L1 低风险任务优先走确定性策略，不依赖模型猜测。
+- App 内任务默认由模型自主决策；确定性策略只作为低风险兜底。
 - 复杂 App 使用策略约束。
 - 高风险动作必须被拦截或确认。
 - 失败必须可记录、可回放、可沉淀为策略。
@@ -59,29 +59,13 @@ Service Layer
 
 ## 主流程
 
-### L1 确定性流程
+### 模型优先 Agent 流程
 
 ```text
 用户输入
   -> MainViewModel.executeCommand()
   -> AgentOrchestrator.executeCommand()
   -> IntentRouter.parseIntent()
-  -> L1CommandRouter.resolve()
-  -> AgentTraceStore.startSession()
-  -> ActionExecutor.execute()
-  -> AgentTraceStore.recordStep()
-```
-
-该流程用于调音量、亮度、返回、Home、最近任务、打开相机、打开 Wi-Fi 设置、打开常见 App 等低风险动作。它不调用本地模型，也不调用云端千问。
-
-### 云端多轮 Agent 流程
-
-```text
-用户输入
-  -> MainViewModel.executeCommand()
-  -> AgentOrchestrator.executeCommand()
-  -> L1CommandRouter 未命中
-  -> AgentStateMachine: IDLE -> PERCEIVING
   -> AgentExecutor.executeTask()
   -> PlannerAgent.plan()
   -> LocalRagEngine.retrieve()
@@ -96,6 +80,23 @@ Service Layer
   -> captureScreen()
   -> 下一轮
 ```
+
+当前默认使用阿里千问云端模型自主决定每一轮动作。ADB 只能作为开发脚手架准备权限、安装 APK 和抓日志，不能代替 Agent 完成业务任务。
+
+### L1 安全兜底流程
+
+```text
+用户输入
+  -> MainViewModel.executeCommand()
+  -> AgentOrchestrator.executeCommand()
+  -> 模型优先执行
+  -> 云端失败或不可观测状态
+  -> L1CommandRouter.resolve()
+  -> ActionExecutor.execute()
+  -> AgentTraceStore.recordStep()
+```
+
+该流程用于调音量、亮度、返回、Home、最近任务、打开相机、打开 Wi-Fi 设置、打开常见 App 等低风险动作的兜底。它不替代模型自主决策，只负责避免低风险任务因为模型服务不可用而完全中断。
 
 ### 本地模型流程
 
@@ -123,7 +124,8 @@ App 启动
 职责：
 
 - 对 UI 层提供统一入口。
-- 优先执行 L1 确定性低风险任务。
+- 默认进入模型优先的 Agent 执行路径。
+- 在云端任务失败时使用 L1 确定性低风险兜底。
 - 初始化本地或云端执行路径。
 - 管理状态机的顶层流转。
 - 隐藏多轮 Agent 的内部复杂度。
@@ -131,11 +133,13 @@ App 启动
 当前路由顺序：
 
 ```text
-L1CommandRouter 命中
-  -> 直接执行确定性动作
-L1CommandRouter 未命中，云端已配置
+云端已配置
   -> AgentExecutor 多轮千问链路
-云端未配置
+云端失败且 L1CommandRouter 命中
+  -> 低风险确定性兜底动作
+云端未配置且 L1CommandRouter 命中
+  -> 低风险确定性兜底动作
+云端未配置且 L1CommandRouter 未命中
   -> 本地模型单轮链路
 ```
 
@@ -144,7 +148,7 @@ L1CommandRouter 未命中，云端已配置
 职责：
 
 - 将低风险自然语言命令直接映射为 `AgentResponse`。
-- 避免把调音量、打开相机、打开 Wi-Fi 设置这类任务交给模型猜测。
+- 在模型失败或不可观测状态下兜底调音量、打开相机、打开 Wi-Fi 设置这类低风险任务。
 - 对包含发送、支付、下单、删除、提交等词的复杂命令主动不接管，让多轮安全链路处理。
 
 当前覆盖：

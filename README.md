@@ -28,7 +28,7 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
 - **结构化 UI 树** 提供可解释的页面状态。
 - **Gemma 4 E2B + LiteRT-LM** 提供 Android 本地模型推理能力。
 - **Qwen-VL-Max** 提供云端视觉模型兜底。
-- **L1 确定性策略** 优先处理调音量、打开相机、Wi-Fi 设置等低风险任务。
+- **L1 安全兜底策略** 在模型失败时处理调音量、打开相机、Wi-Fi 设置等低风险任务。
 - **Local RAG** 注入本地策略、安全约束和失败经验。
 - **Planner / Reflection / ActionGuard** 组成多 Agent 决策链路。
 - **AgentTrace** 记录失败日志和回放材料。
@@ -46,7 +46,7 @@ VisionAgent Android 是一个真实可演进的 Android Agent 项目。它不是
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | 无障碍执行 | 已接入 | 点击、长按、滑动、返回、Home、最近任务、文本输入、打开 App |
-| L1 确定性任务 | 已接入 | 调音量、亮度、Home、最近任务、相机、Wi-Fi 设置、常见 App 启动 |
+| L1 兜底任务 | 已接入 | 调音量、亮度、Home、最近任务、相机、Wi-Fi 设置、常见 App 启动 |
 | 屏幕感知 | 已接入 | 截图、UI 树、结构化 `UiNode` |
 | 本地模型 | 已跑通 | Gemma 4 E2B + LiteRT-LM，真机健康检查成功 |
 | 云端视觉 | 已接入 | 默认阿里云百炼 `qwen-vl-max` |
@@ -107,16 +107,17 @@ Service Layer
 
 ```text
 用户输入
-  -> L1CommandRouter 优先处理低风险确定性任务
   -> PlannerAgent 规划任务和安全模式
   -> LocalRagEngine 检索本地策略
   -> 捕获屏幕截图和 UI 树
   -> ReflectionAgent 注入避错提示
-  -> 本地模型或 Qwen-VL-Max 返回单步动作
+  -> Qwen-VL-Max 或本地模型返回单步动作
   -> ActionGuard 安全拦截
   -> ActionExecutor 执行动作
   -> 再次观察屏幕
 ```
+
+低风险的 L1 确定性策略只作为模型失败或不可观测状态下的安全兜底，不替代模型自主决策。
 
 ---
 

@@ -53,13 +53,14 @@
 
 - 云端兜底模型已切换到阿里云 / Qwen-VL-Max，用于视觉能力和复杂场景兜底。
 - 产品执行策略已调整：当前暂时保持阿里千问为云端主链路；本地 Gemma 先作为健康检查和后续端侧推理储备。
-- 已新增 L1 确定性路由 `L1CommandRouter`：
+- 已新增 L1 安全兜底路由 `L1CommandRouter`：
   - 调高/调低音量。
   - 调高/调低亮度。
   - Wi-Fi 设置、蓝牙设置、飞行模式设置。
   - 返回、Home、最近任务。
   - 打开相机、微信、美团、支付宝、淘宝、抖音、QQ、电话、设置、浏览器。
 - 微信发消息不再作为第一验收主线；微信属于 L3 App 专项任务，最终发送属于 L4 高风险动作。
+- 2026-05-24 后续决策：产品任务必须由 App 内 Agent / 模型优先决策。`L1CommandRouter` 只作为云端模型失败、本地模型不可用或不可观测状态下的低风险兜底，不再抢在模型前面执行任务。
 - `AgentExecutor` 中实现了多轮任务执行、规划、反思和执行校验基础链路。
 - `LocalRagEngine` 中实现了 RAG 策略记忆。
 - RAG 数据已支持本地 JSONL 持久化。
@@ -170,8 +171,8 @@
   - 将开发指南、上手与测试、API 示例、AI 协作 Prompt 合并为 `docs/DEVELOPMENT.md`。
   - 将 Phase 1-5 总结合并为 `docs/HISTORY.md`，并补充 Phase 6 本地模型阶段。
   - 根据产品分层重新调整开发主线：先验收 L1 低风险任务，再推进 L2/L3 多轮任务。
-  - 新增 `L1CommandRouter`，让调音量、回到桌面、打开相机、打开 Wi-Fi 设置、打开微信等低风险任务优先走确定性策略，不调用模型。
-  - `AgentOrchestrator` 已接入 L1 优先路由：L1 命中直接执行；L1 未命中且云端可用时进入阿里千问多轮链路；云端不可用时才走本地模型单轮链路。
+  - 新增 `L1CommandRouter`，让调音量、回到桌面、打开相机、打开 Wi-Fi 设置、打开微信等低风险任务具备确定性兜底能力。
+  - `AgentOrchestrator` 已调整为模型优先路由：云端可用时先进入阿里千问多轮链路；云端失败且 L1 命中时才使用确定性兜底；云端不可用时再考虑 L1 兜底或本地模型单轮链路。
   - 修复 L1 真机卡点：`ActionExecutor` 不再对所有动作强制依赖无障碍 Service。打开 App、调音量、打开 Wi-Fi/蓝牙/飞行模式设置可以使用 Application Context 执行；返回、Home、最近任务、点击、滑动、输入仍需要无障碍。
   - 修复状态机重复 Reset 误报：任务完成自动回到 IDLE 后，再收到 Reset 时只记录调试日志，不再输出非法状态转换错误。
   - 主界面快捷测试已改为 L1 验收任务：调高音量、回到桌面、打开相机、打开 WiFi 设置、打开微信。
@@ -180,6 +181,7 @@
     - 日志显示 `[AgentFlow] deterministic L1 mode action=OPEN_APP`。
     - `ActionExecutor` 执行 `OpenApp(packageName=com.android.camera)`。
     - AgentTrace 记录 `source=LOCAL_RAG`、`action=OPEN_APP`、`success=true`。
+  - 随后根据产品原则再次调整：上述 L1 直接执行只保留为兜底路径，正常任务应由千问模型先做动作决策。
 
 ## 下一步自主任务
 
@@ -199,3 +201,4 @@
 - ADB 只允许作为开发测试脚手架使用：安装 APK、启动 App、准备权限、抓日志、拉取 Trace。
 - 无障碍权限属于系统敏感授权，正式产品必须由用户主动开启；测试机上可以用 `dev_bootstrap_permissions.sh` 尝试通过 `settings put secure` 开启。
 - 屏幕录制权限基于 `MediaProjection`，普通 App 不能真正静默授权；测试脚本只能自动点击系统弹窗。如果 MIUI 拦截，仍可能需要一次人工确认。
+- 当前 Redmi K60 如果处于锁屏/通知遮罩，ADB 可以唤醒但不能可靠绕过安全锁屏；执行 UI 触发型 Agent 测试前，需要保证测试机已解锁。

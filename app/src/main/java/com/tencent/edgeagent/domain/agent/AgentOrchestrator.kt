@@ -52,8 +52,10 @@ class AgentOrchestrator private constructor(
             val intent = intentRouter.parseIntent(userInput)
             val l1Response = l1CommandRouter.resolve(userInput)
             val result = when {
+                cloudFallbackManager.isEnabled() -> {
+                    executeCloudAgent(userInput, intent, l1Response, onProgress, onResponse)
+                }
                 l1Response != null -> executeDeterministicL1(userInput, l1Response, onProgress, onResponse)
-                cloudFallbackManager.isEnabled() -> executeCloudAgent(userInput, intent, onProgress, onResponse)
                 else -> executeLocalSingleRound(userInput, intent, onProgress, onResponse)
             }
 
@@ -73,7 +75,7 @@ class AgentOrchestrator private constructor(
         onProgress: (String) -> Unit,
         onResponse: (AgentResponse) -> Unit
     ): AgentRunResult {
-        Timber.i("[AgentFlow] deterministic L1 mode action=${response.action}")
+        Timber.i("[AgentFlow] deterministic L1 fallback mode action=${response.action}")
         val traceId = traceStore.startSession(userInput)
         var screenData: ScreenData? = null
         return try {
@@ -130,10 +132,11 @@ class AgentOrchestrator private constructor(
     private suspend fun executeCloudAgent(
         userGoal: String,
         intent: AgentIntent,
+        deterministicFallback: AgentResponse?,
         onProgress: (String) -> Unit,
         onResponse: (AgentResponse) -> Unit
     ): AgentRunResult {
-        Timber.i("[AgentFlow] cloud multi-round mode intent=${intent.type}")
+        Timber.i("[AgentFlow] cloud model-first mode intent=${intent.type}")
         val result = agentExecutor.executeTask(
             userGoal = userGoal,
             onProgress = onProgress,
@@ -145,7 +148,13 @@ class AgentOrchestrator private constructor(
                 AgentRunResult.Success("任务完成，共 ${result.rounds} 轮对话")
             }
             is TaskExecutionResult.Failure -> {
-                AgentRunResult.Failure("任务失败: ${result.reason}")
+                if (deterministicFallback == null) {
+                    AgentRunResult.Failure("任务失败: ${result.reason}")
+                } else {
+                    Timber.w("[AgentFlow] cloud task failed, fallback to deterministic L1: ${result.reason}")
+                    onProgress("云端任务失败，使用 L1 安全兜底：${result.reason}")
+                    executeDeterministicL1(userGoal, deterministicFallback, onProgress, onResponse)
+                }
             }
         }
     }
