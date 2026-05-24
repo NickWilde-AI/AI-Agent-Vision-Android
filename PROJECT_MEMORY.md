@@ -79,6 +79,7 @@
 - App 启动时只检测本地模型是否就绪，不再强行加载 2.4GB 模型；完整运行时加载延迟到首次本地推理。
 - 已增加无线部署辅助脚本：`deploy_device.sh`。
 - 已增加模型推送脚本：`push_gemma_model.sh`。
+- 已增加开发测试权限准备脚本：`dev_bootstrap_permissions.sh`。它只用于开启无障碍、设置调试 appops、尝试自动点击屏幕录制授权弹窗，不用于替 Agent 执行业务任务。
 
 ## 文档结构
 
@@ -191,3 +192,10 @@
 7. 扩展 App 专项策略库，优先覆盖浏览器、系统设置、美团、电话、微信。
 8. 继续把失败日志、UI 树、截图状态、模型输出、执行结果统一沉淀到 AgentTrace。
 9. 后续推进多 Agent 协作，包括规划 Agent、视觉/感知 Agent、执行 Agent、反思 Agent、安全 Agent。
+
+## 权限与测试边界
+
+- 产品能力必须由 Android App 内的 Agent 执行，不能依赖 ADB 代替用户点击、输入或完成业务流程。
+- ADB 只允许作为开发测试脚手架使用：安装 APK、启动 App、准备权限、抓日志、拉取 Trace。
+- 无障碍权限属于系统敏感授权，正式产品必须由用户主动开启；测试机上可以用 `dev_bootstrap_permissions.sh` 尝试通过 `settings put secure` 开启。
+- 屏幕录制权限基于 `MediaProjection`，普通 App 不能真正静默授权；测试脚本只能自动点击系统弹窗。如果 MIUI 拦截，仍可能需要一次人工确认。

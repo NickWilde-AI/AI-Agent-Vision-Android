@@ -100,6 +100,19 @@ adb shell am start -n com.tencent.edgeagent/.ui.MainActivity
 adb logcat | grep -E "AgentTask|PlannerAgent|ReflectionAgent|ActionGuard|ActionExecutor|ScreenCapture|LocalGemma|LocalModel"
 ```
 
+开发设备权限准备：
+
+```bash
+./dev_bootstrap_permissions.sh
+```
+
+说明：
+
+- 这个脚本只用于开发测试设备，不是产品能力。
+- 脚本只负责开启无障碍、设置调试 appops、尝试完成屏幕录制授权弹窗，不通过 ADB 执行业务任务。
+- 业务任务必须从 App 内由 `AgentOrchestrator`、千问云端模型、本地策略或本地模型触发。
+- `MediaProjection` 是 Android 的敏感授权，普通 App 不能真正静默授权；脚本只能在测试机上自动点击系统授权弹窗。如果 ROM 拦截，仍需要一次人工确认。
+
 回放最新 AgentTrace：
 
 ```bash

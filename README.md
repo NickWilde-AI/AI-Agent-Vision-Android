@@ -157,6 +157,14 @@ ALIYUN_API_KEY=your-api-key
 - 屏幕录制授权
 - 修改系统设置权限，亮度调节场景需要
 
+开发测试机可以使用权限准备脚本减少重复操作：
+
+```bash
+./dev_bootstrap_permissions.sh
+```
+
+该脚本只用于开发环境准备，不通过 ADB 执行产品任务。真正的手机任务必须从 App 内由 Agent 执行。
+
 ---
 
 ## 本地模型
