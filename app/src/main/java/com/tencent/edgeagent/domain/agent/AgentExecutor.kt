@@ -288,6 +288,11 @@ class AgentExecutor private constructor() {
                     isTaskComplete = true
                     break
                 }
+                if (shouldCompleteDeviceControlImmediately(plan, response, executionResult)) {
+                    onProgress("[$currentRound/$maxRounds] 设备控制已完成")
+                    isTaskComplete = true
+                    break
+                }
                 
                 when (executionResult) {
                     is ExecutionResult.Success -> {
@@ -445,6 +450,16 @@ class AgentExecutor private constructor() {
         val params = response.actionParams as? ActionParams.OpenApp ?: return false
         val targetPackage = plan.targetPackage ?: return false
         return params.packageName == targetPackage && targetPackage != VISION_AGENT_PACKAGE
+    }
+
+    private fun shouldCompleteDeviceControlImmediately(
+        plan: AgentPlan,
+        response: AgentResponse,
+        executionResult: ExecutionResult
+    ): Boolean {
+        return plan.taskType == TaskType.DEVICE_CONTROL &&
+            response.action == ActionType.DEVICE_CONTROL &&
+            executionResult is ExecutionResult.Success
     }
 
     private suspend fun cleanupAfterCompletedPlan(

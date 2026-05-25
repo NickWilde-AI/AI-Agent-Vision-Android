@@ -224,6 +224,12 @@
   - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
   - 用户复测确认 `打开相机` 已成功：先进入相机，再自动返回 VisionAgent。
   - 最新 AgentTrace 显示：第 1 轮 `OPEN_APP/com.android.camera` 成功，第 2 轮 `BACK` 成功，`session_finish success=true`。L1-P0 `打开相机` 验收通过。
+  - 用户反馈 `打开 WiFi 设置` 可以成功进入 Wi-Fi 设置页。
+  - 查看最近 AgentTrace，确认 `DEVICE_CONTROL/WIFI_SETTINGS` 成功，当前前台为 `com.android.settings/.Settings$WifiSettingsActivity`。L1-P0 `打开 WiFi 设置` 验收通过。
+  - 同时发现隐藏问题：模型优先路径会重复执行 `WIFI_SETTINGS` 直到最大轮数，然后才回落到 L1 兜底。
+  - 修复 `AgentExecutor`：`TaskType.DEVICE_CONTROL` 且 `DEVICE_CONTROL` 执行成功后立即结束任务，避免音量、Wi-Fi、蓝牙、通知栏等 L1 设备控制动作重复执行。
+  - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
+  - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
 
 ## 下一步自主任务
 
