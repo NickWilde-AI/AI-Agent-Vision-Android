@@ -222,6 +222,8 @@
   - 同步调整 L1 直接路径收尾：`AgentOrchestrator` 优先用 `BACK` 返回 VisionAgent，只有返回后仍不在 VisionAgent 时才尝试重新拉起 App。
   - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
   - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
+  - 用户复测确认 `打开相机` 已成功：先进入相机，再自动返回 VisionAgent。
+  - 最新 AgentTrace 显示：第 1 轮 `OPEN_APP/com.android.camera` 成功，第 2 轮 `BACK` 成功，`session_finish success=true`。L1-P0 `打开相机` 验收通过。
 
 ## 下一步自主任务
 
