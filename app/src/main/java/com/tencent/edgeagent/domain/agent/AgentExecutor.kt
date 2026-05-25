@@ -293,6 +293,11 @@ class AgentExecutor private constructor() {
                     isTaskComplete = true
                     break
                 }
+                if (shouldCompleteSystemNavigationImmediately(plan, response, executionResult)) {
+                    onProgress("[$currentRound/$maxRounds] 系统导航已完成")
+                    isTaskComplete = true
+                    break
+                }
                 
                 when (executionResult) {
                     is ExecutionResult.Success -> {
@@ -459,6 +464,16 @@ class AgentExecutor private constructor() {
     ): Boolean {
         return plan.taskType == TaskType.DEVICE_CONTROL &&
             response.action == ActionType.DEVICE_CONTROL &&
+            executionResult is ExecutionResult.Success
+    }
+
+    private fun shouldCompleteSystemNavigationImmediately(
+        plan: AgentPlan,
+        response: AgentResponse,
+        executionResult: ExecutionResult
+    ): Boolean {
+        return plan.taskType == TaskType.SYSTEM_NAVIGATION &&
+            response.action in setOf(ActionType.BACK, ActionType.HOME, ActionType.RECENTS) &&
             executionResult is ExecutionResult.Success
     }
 

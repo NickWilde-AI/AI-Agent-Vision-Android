@@ -232,6 +232,13 @@
   - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
   - 用户反馈 `打开蓝牙设置` 成功。
   - 最新 AgentTrace 显示：规划为 `DEVICE_CONTROL`，第 1 轮 `DEVICE_CONTROL/BLUETOOTH_SETTINGS` 成功后直接 `session_finish success=true`，没有重复执行。L1-P0 `打开蓝牙设置` 验收通过。
+  - 用户批量测试 L1 基础功能后反馈基本成功，但 `打开最近任务` 出现来回跳转。
+  - 批量查看最近 AgentTrace：通知栏、快捷设置、声音与触感、日期时间、壁纸等设备控制入口均为第 1 轮成功并结束。
+  - 定位 `打开最近任务` 的异常 Trace：模型优先路径连续 6 轮执行 `RECENTS`，在 `com.miui.home` 与 VisionAgent 间反复切换，最后超过最大轮数；后续 L1 兜底 Trace 单轮成功。
+  - 修复 `AgentExecutor`：`TaskType.SYSTEM_NAVIGATION` 且 `BACK/HOME/RECENTS` 执行成功后立即结束任务，避免返回、桌面、最近任务等系统导航动作重复执行。
+  - 明确当前感知机制：每轮都会采集一次 `ScreenData`；屏幕录制未授权时只采集无障碍 UI 树并使用空白 Bitmap。AgentTrace 记录包名、UI 树摘要、模型/策略响应和执行结果，不持久化完整截图图片。
+  - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
+  - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
 
 ## 下一步自主任务
 
