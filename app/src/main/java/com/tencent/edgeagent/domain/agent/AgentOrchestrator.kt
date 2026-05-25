@@ -9,10 +9,12 @@ import com.tencent.edgeagent.data.inference.ILocalModelEngine
 import com.tencent.edgeagent.data.inference.LocalModelEngineProvider
 import com.tencent.edgeagent.data.trace.AgentTraceStore
 import com.tencent.edgeagent.domain.model.ActionType
+import com.tencent.edgeagent.domain.model.ActionParams
 import com.tencent.edgeagent.domain.model.AgentEvent
 import com.tencent.edgeagent.domain.model.AgentIntent
 import com.tencent.edgeagent.domain.model.AgentResponse
 import com.tencent.edgeagent.domain.model.AgentState
+import com.tencent.edgeagent.domain.model.InferenceSource
 import com.tencent.edgeagent.domain.model.ScreenData
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
 import kotlinx.coroutines.flow.StateFlow
@@ -110,6 +112,9 @@ class AgentOrchestrator private constructor(
                 reflection = null,
                 note = "l1_deterministic"
             )
+            if (result is AgentRunResult.Success) {
+                cleanupAfterL1OpenApp(traceId, response, onProgress)
+            }
             traceStore.finishSession(
                 sessionId = traceId,
                 success = result is AgentRunResult.Success,
@@ -296,6 +301,38 @@ class AgentOrchestrator private constructor(
         }
     }
 
+    private suspend fun cleanupAfterL1OpenApp(
+        traceId: String,
+        response: AgentResponse,
+        onProgress: (String) -> Unit
+    ) {
+        val params = response.actionParams as? ActionParams.OpenApp ?: return
+        if (response.action != ActionType.OPEN_APP) return
+        if (params.packageName == VISION_AGENT_PACKAGE) return
+
+        val cleanupResponse = AgentResponse(
+            source = InferenceSource.STRATEGY,
+            action = ActionType.OPEN_APP,
+            actionParams = ActionParams.OpenApp(packageName = VISION_AGENT_PACKAGE),
+            confidence = 1.0f,
+            inferenceTimeMs = 0L,
+            rawOutput = "l1_cleanup_reopen_agent:${params.packageName}",
+            requiresConfirmation = false
+        )
+        onProgress("L1 验证完成，返回 VisionAgent")
+        val beforeCleanup = captureRealScreenData() ?: createFallbackScreenData()
+        val cleanupResult = actionExecutor.execute(cleanupResponse)
+        traceStore.recordStep(
+            sessionId = traceId,
+            round = 2,
+            screenData = beforeCleanup,
+            response = cleanupResponse,
+            executionResult = cleanupResult,
+            reflection = null,
+            note = "l1_post_task_reopen_agent"
+        )
+    }
+
     private suspend fun captureRealScreenData(): ScreenData? {
         return try {
             EdgeAgentAccessibilityService.getInstance()?.captureScreenData()
@@ -318,6 +355,8 @@ class AgentOrchestrator private constructor(
     }
 
     companion object {
+        private const val VISION_AGENT_PACKAGE = "com.tencent.edgeagent"
+
         @Volatile
         private var instance: AgentOrchestrator? = null
 

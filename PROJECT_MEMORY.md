@@ -211,6 +211,11 @@
   - 新增 `docs/L1_TEST_MATRIX.md` 和 `l1_validation.sh`，形成 L1 真机验收闭环。
   - 补强 L1/L2 边界：`连接某个蓝牙设备`、`设置自己的壁纸`、`把时区改为阿根廷` 不再被 L1 路由或策略层接管。
   - 执行 `./l1_validation.sh`：L1 单元测试通过、Debug APK 构建通过、真机安装成功、开发权限准备完成、VisionAgent 启动成功。
+  - 用户反馈 `打开相机` 能成功进入相机，但不会返回 VisionAgent。
+  - 查看最近日志和最新 AgentTrace，确认该任务走的是 `l1_deterministic` 直接路径：Trace 在 `OPEN_APP/com.android.camera` 成功后立即结束，没有进入多轮 Agent 的收尾逻辑。
+  - 修复 `AgentOrchestrator.executeDeterministicL1`：L1 `OPEN_APP` 成功后统一执行 `OPEN_APP/com.tencent.edgeagent` 作为测试收尾，并把收尾动作记录为 `l1_post_task_reopen_agent`。
+  - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
+  - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认 App 进程和无障碍服务在线。
 
 ## 下一步自主任务
 
