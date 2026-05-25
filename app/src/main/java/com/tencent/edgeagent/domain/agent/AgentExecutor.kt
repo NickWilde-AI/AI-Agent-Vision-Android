@@ -281,6 +281,13 @@ class AgentExecutor private constructor() {
                     executionResult = executionResult,
                     reflection = reflection
                 )
+
+                if (shouldCleanupOpenAppImmediately(plan, response, executionResult)) {
+                    val afterOpenScreen = captureScreen() ?: screenData
+                    cleanupAfterCompletedPlan(traceId, currentRound + 1, plan, afterOpenScreen, onProgress)
+                    isTaskComplete = true
+                    break
+                }
                 
                 when (executionResult) {
                     is ExecutionResult.Success -> {
@@ -427,6 +434,19 @@ class AgentExecutor private constructor() {
         }
     }
 
+    private fun shouldCleanupOpenAppImmediately(
+        plan: AgentPlan,
+        response: AgentResponse,
+        executionResult: ExecutionResult
+    ): Boolean {
+        if (plan.taskType != TaskType.OPEN_APP) return false
+        if (executionResult !is ExecutionResult.Success) return false
+        if (response.action != ActionType.OPEN_APP) return false
+        val params = response.actionParams as? ActionParams.OpenApp ?: return false
+        val targetPackage = plan.targetPackage ?: return false
+        return params.packageName == targetPackage && targetPackage != VISION_AGENT_PACKAGE
+    }
+
     private suspend fun cleanupAfterCompletedPlan(
         traceId: String,
         round: Int,
@@ -437,7 +457,7 @@ class AgentExecutor private constructor() {
         val targetPackage = plan.targetPackage ?: return
         if (plan.taskType != TaskType.OPEN_APP) return
         if (targetPackage == VISION_AGENT_PACKAGE) return
-        if (screenData.currentPackage != targetPackage) return
+        if (screenData.currentPackage == VISION_AGENT_PACKAGE) return
 
         val response = AgentResponse(
             source = InferenceSource.STRATEGY,

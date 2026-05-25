@@ -17,6 +17,7 @@ import com.tencent.edgeagent.domain.model.AgentState
 import com.tencent.edgeagent.domain.model.InferenceSource
 import com.tencent.edgeagent.domain.model.ScreenData
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import timber.log.Timber
 
@@ -310,24 +311,48 @@ class AgentOrchestrator private constructor(
         if (response.action != ActionType.OPEN_APP) return
         if (params.packageName == VISION_AGENT_PACKAGE) return
 
-        val cleanupResponse = AgentResponse(
+        val backResponse = AgentResponse(
+            source = InferenceSource.STRATEGY,
+            action = ActionType.BACK,
+            actionParams = ActionParams.NoAction("L1 打开应用验收完成，返回 VisionAgent"),
+            confidence = 1.0f,
+            inferenceTimeMs = 0L,
+            rawOutput = "l1_cleanup_back_from:${params.packageName}",
+            requiresConfirmation = false
+        )
+        onProgress("L1 验证完成，返回 VisionAgent")
+        val beforeCleanup = captureRealScreenData() ?: createFallbackScreenData()
+        val backResult = actionExecutor.execute(backResponse)
+        traceStore.recordStep(
+            sessionId = traceId,
+            round = 2,
+            screenData = beforeCleanup,
+            response = backResponse,
+            executionResult = backResult,
+            reflection = null,
+            note = "l1_post_task_back_to_agent"
+        )
+        delay(700)
+
+        val afterBackPackage = captureRealScreenData()?.currentPackage
+        if (afterBackPackage == VISION_AGENT_PACKAGE) return
+
+        val reopenResponse = AgentResponse(
             source = InferenceSource.STRATEGY,
             action = ActionType.OPEN_APP,
             actionParams = ActionParams.OpenApp(packageName = VISION_AGENT_PACKAGE),
             confidence = 1.0f,
             inferenceTimeMs = 0L,
-            rawOutput = "l1_cleanup_reopen_agent:${params.packageName}",
+            rawOutput = "l1_cleanup_reopen_agent_after_back:$afterBackPackage",
             requiresConfirmation = false
         )
-        onProgress("L1 验证完成，返回 VisionAgent")
-        val beforeCleanup = captureRealScreenData() ?: createFallbackScreenData()
-        val cleanupResult = actionExecutor.execute(cleanupResponse)
+        val reopenResult = actionExecutor.execute(reopenResponse)
         traceStore.recordStep(
             sessionId = traceId,
-            round = 2,
-            screenData = beforeCleanup,
-            response = cleanupResponse,
-            executionResult = cleanupResult,
+            round = 3,
+            screenData = captureRealScreenData() ?: createFallbackScreenData(),
+            response = reopenResponse,
+            executionResult = reopenResult,
             reflection = null,
             note = "l1_post_task_reopen_agent"
         )

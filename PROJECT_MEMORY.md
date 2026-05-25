@@ -216,6 +216,12 @@
   - 修复 `AgentOrchestrator.executeDeterministicL1`：L1 `OPEN_APP` 成功后统一执行 `OPEN_APP/com.tencent.edgeagent` 作为测试收尾，并把收尾动作记录为 `l1_post_task_reopen_agent`。
   - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
   - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认 App 进程和无障碍服务在线。
+  - 用户复测反馈：`打开相机` 仍未成功返回 VisionAgent。
+  - 再次查看最近日志和最新 AgentTrace，确认该次走的是千问模型优先多轮路径：`OPEN_APP/com.android.camera` 成功后 Trace 没有进入第 2 轮，也没有 `session_finish`。
+  - 修复模型优先 `OPEN_APP` 收尾：`AgentExecutor` 在 `OPEN_APP` 执行成功后立即进入收尾，不再等待下一轮模型循环；收尾优先通过无障碍 `BACK` 回到 VisionAgent。
+  - 同步调整 L1 直接路径收尾：`AgentOrchestrator` 优先用 `BACK` 返回 VisionAgent，只有返回后仍不在 VisionAgent 时才尝试重新拉起 App。
+  - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
+  - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
 
 ## 下一步自主任务
 
