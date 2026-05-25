@@ -109,9 +109,11 @@ class L1CommandRouterTest {
     fun resolve_doesNotTakeOverL2SettingsMutation() {
         val timezoneResponse = router.resolve("把时区改为阿根廷")
         val wallpaperResponse = router.resolve("设置自己的壁纸")
+        val bluetoothResponse = router.resolve("开启蓝牙并连接某个设备")
 
         assertNull(timezoneResponse)
         assertNull(wallpaperResponse)
+        assertNull(bluetoothResponse)
     }
 
     @Test

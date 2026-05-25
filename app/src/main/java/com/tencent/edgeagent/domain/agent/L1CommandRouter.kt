@@ -19,6 +19,7 @@ class L1CommandRouter private constructor() {
         if (text.isBlank()) return null
 
         val normalized = text.lowercase()
+        if (containsL2TargetMutation(text, normalized)) return null
 
         resolveDeviceControl(text, normalized)?.let { return it }
         resolveSystemNavigation(text, normalized)?.let { return it }
@@ -199,6 +200,25 @@ class L1CommandRouter private constructor() {
             "填写"
         )
         return highRiskOrMultiStep.any { text.contains(it) }
+    }
+
+    private fun containsL2TargetMutation(text: String, normalized: String): Boolean {
+        val mutationWords = listOf(
+            "改为",
+            "改成",
+            "设为",
+            "设置为",
+            "换成",
+            "选择",
+            "配对",
+            "连接到",
+            "连接某",
+            "具体设备",
+            "某个设备",
+            "自己的",
+            "指定"
+        )
+        return mutationWords.any { text.contains(it) || normalized.contains(it) }
     }
 
     private fun isDecrease(text: String, normalized: String): Boolean {

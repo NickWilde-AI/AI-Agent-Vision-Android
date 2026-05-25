@@ -136,6 +136,17 @@ adb logcat | grep -E "AgentTask|PlannerAgent|ReflectionAgent|ActionGuard|ActionE
 ./view_logs.sh --replay
 ```
 
+L1 自动检查和真机验收准备：
+
+```bash
+./l1_validation.sh
+```
+
+说明：
+
+- 脚本会运行 L1 单元测试、构建 Debug APK、安装到测试机、准备开发权限并启动 App。
+- 脚本不会替 Agent 执行业务任务；真正的 L1 真机用例仍按 [L1_TEST_MATRIX.md](L1_TEST_MATRIX.md) 从 App 内手动触发。
+
 ## 无线 ADB
 
 如果手机无线调试页面已经显示“已配对的设备”，通常可以直接连接主页面上的连接端口：

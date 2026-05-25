@@ -92,6 +92,7 @@
 - 已增加模型推送脚本：`push_gemma_model.sh`。
 - 已增加开发测试权限准备脚本：`dev_bootstrap_permissions.sh`。它只用于开启无障碍、设置调试 appops、尝试自动点击屏幕录制授权弹窗，不用于替 Agent 执行业务任务。
 - 已增加开发测试常亮脚本：`keep_device_awake.sh`。它只用于防止 Redmi K60 长时间测试时熄屏，不读取页面、不点击业务控件、不替 Agent 执行任务。
+- 已增加 L1 验收脚本：`l1_validation.sh`。它只负责单元测试、构建、安装、权限准备和启动 App；真正 L1 业务动作仍需要从 VisionAgent App 内执行。
 
 ## 文档结构
 
@@ -99,6 +100,7 @@
 - `PROJECT_MEMORY.md`：项目长期记忆、设备状态、当前任务线。
 - `docs/PRODUCT.md`：产品定位、用户场景、版本规划、能力边界。
 - `docs/L1_CAPABILITIES.md`：L1 基础能力清单、边界和 L2 入口。
+- `docs/L1_TEST_MATRIX.md`：L1 真机验收矩阵、通过标准和边界回归。
 - `docs/ARCHITECTURE.md`：当前真实架构、模块职责、主流程。
 - `docs/DEVELOPMENT.md`：开发运行手册、API 示例、调试命令、AI 协作上下文。
 - `docs/HISTORY.md`：Phase 1-6 历史记录和演进说明。
@@ -206,6 +208,9 @@
   - 安装最新 Debug APK 到 Redmi K60，通过 `dev_bootstrap_permissions.sh` 开启无障碍并尝试处理屏幕录制授权；日志显示无障碍服务已重新连接。
   - 从真机日志确认 Redmi K60 的系统浏览器包名是 `com.android.browser`，已同步补充到 L1 路由、Planner、BrowserStrategy、ActionExecutor 和云端 Prompt。
   - 新增并启动 `keep_device_awake.sh`，通过 `screen_off_timeout`、`svc power stayon` 和定期 `KEYCODE_WAKEUP` 保持开发测试机亮屏。macOS 下脚本使用 `launchctl` 托管，避免普通后台进程被终端会话回收。
+  - 新增 `docs/L1_TEST_MATRIX.md` 和 `l1_validation.sh`，形成 L1 真机验收闭环。
+  - 补强 L1/L2 边界：`连接某个蓝牙设备`、`设置自己的壁纸`、`把时区改为阿根廷` 不再被 L1 路由或策略层接管。
+  - 执行 `./l1_validation.sh`：L1 单元测试通过、Debug APK 构建通过、真机安装成功、开发权限准备完成、VisionAgent 启动成功。
 
 ## 下一步自主任务
 

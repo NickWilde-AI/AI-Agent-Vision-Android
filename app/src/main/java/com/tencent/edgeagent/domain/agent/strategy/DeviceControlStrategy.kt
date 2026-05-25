@@ -56,6 +56,8 @@ class DeviceControlStrategy : AppStrategy {
     }
 
     private fun resolveControlType(goal: String): DeviceControlType? {
+        if (containsL2TargetMutation(goal)) return null
+
         val l1Response = L1CommandRouter.getInstance().resolve(goal)
         val l1Params = l1Response?.actionParams as? ActionParams.DeviceControl
         if (l1Params != null) return l1Params.controlType
@@ -76,6 +78,26 @@ class DeviceControlStrategy : AppStrategy {
             goal.contains("飞行模式") || normalized.contains("airplane") -> DeviceControlType.AIRPLANE_MODE_TOGGLE
             else -> null
         }
+    }
+
+    private fun containsL2TargetMutation(goal: String): Boolean {
+        val normalized = goal.lowercase()
+        val mutationWords = listOf(
+            "改为",
+            "改成",
+            "设为",
+            "设置为",
+            "换成",
+            "选择",
+            "配对",
+            "连接到",
+            "连接某",
+            "具体设备",
+            "某个设备",
+            "自己的",
+            "指定"
+        )
+        return mutationWords.any { goal.contains(it) || normalized.contains(it) }
     }
 
     private fun isDecrease(goal: String, normalized: String): Boolean {

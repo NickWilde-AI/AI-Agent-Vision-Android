@@ -211,6 +211,7 @@ inferenceTimeMs=18983
 | [PROJECT_MEMORY.md](PROJECT_MEMORY.md) | 项目长期记忆、设备状态、当前任务线 |
 | [docs/PRODUCT.md](docs/PRODUCT.md) | 产品定位、用户场景、版本规划、能力边界 |
 | [docs/L1_CAPABILITIES.md](docs/L1_CAPABILITIES.md) | L1 基础能力清单、边界和 L2 入口 |
+| [docs/L1_TEST_MATRIX.md](docs/L1_TEST_MATRIX.md) | L1 真机验收矩阵和通过标准 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 当前真实架构、模块职责、主流程 |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发运行手册、API 示例、调试命令、AI 协作上下文 |
 | [docs/HISTORY.md](docs/HISTORY.md) | Phase 1-5 历史记录和演进说明 |

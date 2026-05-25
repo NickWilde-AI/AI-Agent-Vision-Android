@@ -70,6 +70,25 @@ class L1StrategyTest {
     }
 
     @Test
+    fun deviceControlStrategy_keepsL2TargetMutation() {
+        val plan = AgentPlan(
+            goal = "开启蓝牙并连接某个设备",
+            taskType = TaskType.DEVICE_CONTROL,
+            targetPackage = null,
+            safetyMode = SafetyMode.AUTO,
+            maxRounds = 6,
+            localKnowledge = "",
+            constraints = emptyList()
+        )
+
+        val response = clickResponse()
+        val rewrite = DeviceControlStrategy().rewriteResponse(plan, screenData(), emptyList(), response)
+
+        assertTrue(rewrite is StrategyRewrite.Keep)
+        assertEquals(ActionType.CLICK, (rewrite as StrategyRewrite.Keep).response.action)
+    }
+
+    @Test
     fun systemNavigationStrategy_rewritesClickToBackForKeyboard() {
         val plan = AgentPlan(
             goal = "关闭键盘",

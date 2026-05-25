@@ -48,8 +48,9 @@ class PlannerAgent private constructor(
             l1Response?.action == ActionType.DEVICE_CONTROL -> TaskType.DEVICE_CONTROL
             l1Response?.action in setOf(ActionType.BACK, ActionType.HOME, ActionType.RECENTS) -> TaskType.SYSTEM_NAVIGATION
             isSystemNavigation(goal, normalized) -> TaskType.SYSTEM_NAVIGATION
-            goal.contains("音量") || goal.contains("亮度") || normalized.contains("wifi") ||
-                goal.contains("蓝牙") || goal.contains("飞行模式") -> TaskType.DEVICE_CONTROL
+            !containsL2TargetMutation(goal, normalized) &&
+                (goal.contains("音量") || goal.contains("亮度") || normalized.contains("wifi") ||
+                    goal.contains("蓝牙") || goal.contains("飞行模式")) -> TaskType.DEVICE_CONTROL
             goal.contains("搜索") || normalized.contains("search") -> TaskType.BROWSER_SEARCH
             goal.contains("打开") && targetPackage != null -> TaskType.OPEN_APP
             targetPackage != null -> TaskType.APP_NAVIGATION
@@ -101,6 +102,25 @@ class PlannerAgent private constructor(
             normalized == "back" ||
             normalized == "home" ||
             normalized.contains("recents")
+    }
+
+    private fun containsL2TargetMutation(goal: String, normalized: String): Boolean {
+        val mutationWords = listOf(
+            "改为",
+            "改成",
+            "设为",
+            "设置为",
+            "换成",
+            "选择",
+            "配对",
+            "连接到",
+            "连接某",
+            "具体设备",
+            "某个设备",
+            "自己的",
+            "指定"
+        )
+        return mutationWords.any { goal.contains(it) || normalized.contains(it) }
     }
 
     private fun resolveTargetPackage(goal: String): String? {
