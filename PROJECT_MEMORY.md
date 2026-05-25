@@ -230,6 +230,8 @@
   - 修复 `AgentExecutor`：`TaskType.DEVICE_CONTROL` 且 `DEVICE_CONTROL` 执行成功后立即结束任务，避免音量、Wi-Fi、蓝牙、通知栏等 L1 设备控制动作重复执行。
   - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
   - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
+  - 用户反馈 `打开蓝牙设置` 成功。
+  - 最新 AgentTrace 显示：规划为 `DEVICE_CONTROL`，第 1 轮 `DEVICE_CONTROL/BLUETOOTH_SETTINGS` 成功后直接 `session_finish success=true`，没有重复执行。L1-P0 `打开蓝牙设置` 验收通过。
 
 ## 下一步自主任务
 
