@@ -15,6 +15,7 @@ import com.tencent.edgeagent.domain.model.AgentIntent
 import com.tencent.edgeagent.domain.model.AgentResponse
 import com.tencent.edgeagent.domain.model.AgentState
 import com.tencent.edgeagent.domain.model.InferenceSource
+import com.tencent.edgeagent.domain.model.ScreenCaptureMode
 import com.tencent.edgeagent.domain.model.ScreenData
 import com.tencent.edgeagent.service.EdgeAgentAccessibilityService
 import kotlinx.coroutines.delay
@@ -86,7 +87,8 @@ class AgentOrchestrator private constructor(
         var screenData: ScreenData? = null
         return try {
             onProgress("L1 确定性策略执行中...")
-            val currentScreenData = captureRealScreenData() ?: createFallbackScreenData()
+            val currentScreenData = captureRealScreenData(ScreenCaptureMode.UI_TREE_ONLY)
+                ?: createFallbackScreenData()
             screenData = currentScreenData
             stateMachine.handleEvent(AgentEvent.PerceptionComplete(currentScreenData))
 
@@ -178,7 +180,8 @@ class AgentOrchestrator private constructor(
         val traceId = traceStore.startSession(userInput)
         var screenData: ScreenData? = null
         return try {
-            val currentScreenData = captureRealScreenData() ?: createFallbackScreenData()
+            val currentScreenData = captureRealScreenData(ScreenCaptureMode.UI_TREE_AND_SCREENSHOT)
+                ?: createFallbackScreenData()
             screenData = currentScreenData
             stateMachine.handleEvent(AgentEvent.PerceptionComplete(currentScreenData))
 
@@ -321,7 +324,8 @@ class AgentOrchestrator private constructor(
             requiresConfirmation = false
         )
         onProgress("L1 验证完成，返回 VisionAgent")
-        val beforeCleanup = captureRealScreenData() ?: createFallbackScreenData()
+        val beforeCleanup = captureRealScreenData(ScreenCaptureMode.UI_TREE_ONLY)
+            ?: createFallbackScreenData()
         val backResult = actionExecutor.execute(backResponse)
         traceStore.recordStep(
             sessionId = traceId,
@@ -334,7 +338,7 @@ class AgentOrchestrator private constructor(
         )
         delay(700)
 
-        val afterBackPackage = captureRealScreenData()?.currentPackage
+        val afterBackPackage = captureRealScreenData(ScreenCaptureMode.UI_TREE_ONLY)?.currentPackage
         if (afterBackPackage == VISION_AGENT_PACKAGE) return
 
         val reopenResponse = AgentResponse(
@@ -350,7 +354,7 @@ class AgentOrchestrator private constructor(
         traceStore.recordStep(
             sessionId = traceId,
             round = 3,
-            screenData = captureRealScreenData() ?: createFallbackScreenData(),
+            screenData = captureRealScreenData(ScreenCaptureMode.UI_TREE_ONLY) ?: createFallbackScreenData(),
             response = reopenResponse,
             executionResult = reopenResult,
             reflection = null,
@@ -358,9 +362,11 @@ class AgentOrchestrator private constructor(
         )
     }
 
-    private suspend fun captureRealScreenData(): ScreenData? {
+    private suspend fun captureRealScreenData(
+        captureMode: ScreenCaptureMode = ScreenCaptureMode.UI_TREE_ONLY
+    ): ScreenData? {
         return try {
-            EdgeAgentAccessibilityService.getInstance()?.captureScreenData()
+            EdgeAgentAccessibilityService.getInstance()?.captureScreenData(captureMode)
         } catch (e: Exception) {
             Timber.e(e, "[AgentFlow] capture screen failed")
             null
@@ -375,7 +381,8 @@ class AgentOrchestrator private constructor(
             screenWidth = 1080,
             screenHeight = 2400,
             currentPackage = "com.tencent.edgeagent",
-            hasRealScreenshot = false
+            hasRealScreenshot = false,
+            captureMode = ScreenCaptureMode.UI_TREE_ONLY
         )
     }
 

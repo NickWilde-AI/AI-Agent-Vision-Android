@@ -147,6 +147,7 @@ class AgentTraceStore private constructor() {
                         output.append(
                             "第 ${event.optInt("round")} 轮: " +
                                 "pkg=${screen?.optString("packageName")} " +
+                                "capture=${screen?.optString("captureMode", "UNKNOWN")} " +
                                 "action=${response?.optString("action")} " +
                                 "result=${execution?.optString("status") ?: "none"} " +
                                 "${execution?.optString("message").orEmpty()}\n"
@@ -226,6 +227,7 @@ class AgentTraceStore private constructor() {
             .put("screenWidth", screenData.screenWidth)
             .put("screenHeight", screenData.screenHeight)
             .put("hasRealScreenshot", screenData.hasRealScreenshot)
+            .put("captureMode", screenData.captureMode.name)
             .put("timestamp", screenData.timestamp)
             .put("uiSummary", summarizeUiTree(screenData.uiTreeText))
     }

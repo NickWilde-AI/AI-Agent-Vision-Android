@@ -193,6 +193,11 @@ enum class DeviceControlType {
 /**
  * 屏幕数据（感知层输出）
  */
+enum class ScreenCaptureMode {
+    UI_TREE_ONLY,
+    UI_TREE_AND_SCREENSHOT
+}
+
 data class ScreenData(
     /**
      * 屏幕截图
@@ -223,6 +228,15 @@ data class ScreenData(
      * 是否是真实屏幕截图；false 表示仅为空白占位图，不能用于视觉判断。
      */
     val hasRealScreenshot: Boolean = true,
+
+    /**
+     * 本轮实际采集模式。UI 树每轮都会采集；截图只在授权且策略需要时采集。
+     */
+    val captureMode: ScreenCaptureMode = if (hasRealScreenshot) {
+        ScreenCaptureMode.UI_TREE_AND_SCREENSHOT
+    } else {
+        ScreenCaptureMode.UI_TREE_ONLY
+    },
 
     /**
      * 捕获时间戳

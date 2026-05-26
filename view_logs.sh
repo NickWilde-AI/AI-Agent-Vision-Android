@@ -86,9 +86,10 @@ for raw in sys.stdin:
         response = event.get("response") or {}
         execution = event.get("execution") or {}
         params = response.get("params") or {}
-        print("第 {} 轮: pkg={} action={} params={} result={} {}".format(
+        print("第 {} 轮: pkg={} capture={} action={} params={} result={} {}".format(
             event.get("round", "?"),
             screen.get("packageName", ""),
+            screen.get("captureMode", "UNKNOWN"),
             response.get("action", "none"),
             params,
             execution.get("status", "none"),

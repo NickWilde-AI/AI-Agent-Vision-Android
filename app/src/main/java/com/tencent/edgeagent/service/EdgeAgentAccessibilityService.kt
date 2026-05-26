@@ -1,24 +1,17 @@
 package com.tencent.edgeagent.service
 
 import android.accessibilityservice.AccessibilityService
-import android.graphics.Bitmap
-import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
-import androidx.annotation.RequiresApi
 import com.tencent.edgeagent.data.execution.GestureExecutor
 import com.tencent.edgeagent.data.perception.ScreenCaptureManager
 import com.tencent.edgeagent.data.perception.UITreeExtractor
 import com.tencent.edgeagent.domain.model.ScreenData
+import com.tencent.edgeagent.domain.model.ScreenCaptureMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import timber.log.Timber
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 
 /**
  * EdgeAgent 无障碍服务
@@ -37,8 +30,6 @@ import kotlin.coroutines.suspendCoroutine
 class EdgeAgentAccessibilityService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val mainHandler = Handler(Looper.getMainLooper())
-    
     private lateinit var gestureExecutor: GestureExecutor
     private val screenCaptureManager = ScreenCaptureManager.getInstance()
     private val uiTreeExtractor = UITreeExtractor.getInstance()
@@ -75,9 +66,11 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
 
     /**
      * 捕获当前屏幕数据（屏幕录制帧 + UI 树）
-     * 优先使用 MediaProjection 录制帧，不可用时降级为空白 Bitmap
+     * UI 树每轮必采；MediaProjection 截图只在调用方需要且已授权时采集。
      */
-    suspend fun captureScreenData(): ScreenData? {
+    suspend fun captureScreenData(
+        captureMode: ScreenCaptureMode = ScreenCaptureMode.UI_TREE_AND_SCREENSHOT
+    ): ScreenData? {
         if (!isServiceReady) {
             Timber.e("服务未就绪")
             return null
@@ -103,12 +96,18 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
                 currentPackage = null
             }
             
-            val hasRealScreenshot = screenCaptureManager.isScreenCaptureAvailable()
-            val bitmap = if (hasRealScreenshot) {
+            val shouldCaptureScreenshot =
+                captureMode == ScreenCaptureMode.UI_TREE_AND_SCREENSHOT &&
+                    screenCaptureManager.isScreenCaptureAvailable()
+            val bitmap = if (shouldCaptureScreenshot) {
                 Timber.d("使用 MediaProjection 录制帧")
                 screenCaptureManager.captureScreen()
             } else {
-                Timber.w("MediaProjection 不可用，使用空白 Bitmap（请授权屏幕录制权限）")
+                if (captureMode == ScreenCaptureMode.UI_TREE_AND_SCREENSHOT) {
+                    Timber.w("MediaProjection 不可用，使用空白 Bitmap（请授权屏幕录制权限）")
+                } else {
+                    Timber.d("本轮按策略跳过截图，仅采集 UI 树")
+                }
                 screenCaptureManager.obtainBitmap(screenWidth, screenHeight)
             }
             
@@ -118,7 +117,12 @@ class EdgeAgentAccessibilityService : AccessibilityService() {
                 screenWidth = screenWidth,
                 screenHeight = screenHeight,
                 currentPackage = currentPackage,
-                hasRealScreenshot = hasRealScreenshot
+                hasRealScreenshot = shouldCaptureScreenshot,
+                captureMode = if (shouldCaptureScreenshot) {
+                    ScreenCaptureMode.UI_TREE_AND_SCREENSHOT
+                } else {
+                    ScreenCaptureMode.UI_TREE_ONLY
+                }
             )
         } catch (e: Exception) {
             Timber.e(e, "捕获屏幕数据失败")

@@ -239,6 +239,12 @@
   - 明确当前感知机制：每轮都会采集一次 `ScreenData`；屏幕录制未授权时只采集无障碍 UI 树并使用空白 Bitmap。AgentTrace 记录包名、UI 树摘要、模型/策略响应和执行结果，不持久化完整截图图片。
   - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
   - 重新安装 Debug APK 到 Redmi K60 并启动 VisionAgent；确认当前前台为 `com.tencent.edgeagent/.ui.MainActivity`，无障碍服务在线。
+  - 新增自适应感知采集策略：UI 树每轮必采，截图只在任务/页面需要视觉理解且屏幕录制已授权时采集。
+  - L1 系统导航、设备控制、打开 App 默认使用 `UI_TREE_ONLY`，避免实时截图拖慢基础能力。
+  - 微信草稿、浏览器、App 内导航、通用任务、视觉关键词任务或 UI 树不可用场景使用 `UI_TREE_AND_SCREENSHOT`。
+  - `ScreenData` 新增 `captureMode`，AgentTrace 和 `view_logs.sh --replay` 会显示每轮实际采集模式。
+  - 重新执行 `./gradlew :app:testDebugUnitTest :app:assembleDebug`：通过。
+  - 当前 ADB 未连接设备，尚未把本次 APK 安装到 Redmi K60。
 
 ## 下一步自主任务
 

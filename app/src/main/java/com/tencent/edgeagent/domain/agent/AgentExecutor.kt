@@ -93,15 +93,22 @@ class AgentExecutor private constructor() {
         var currentRound = 0
         var isTaskComplete = false
         
-        // 初始截图
-        var currentScreenData = captureScreen()
+        // 初始感知先走轻量 UI 树，拿到当前包名后再决定是否需要真截图。
+        var currentScreenData = captureScreen(ScreenCaptureMode.UI_TREE_ONLY)
         if (currentScreenData == null) {
             return fail("无法捕获屏幕数据")
         }
 
         val plan = plannerAgent.plan(userGoal, currentScreenData.currentPackage)
+        val captureMode = resolveCaptureMode(plan, userGoal, currentScreenData)
+        if (captureMode == ScreenCaptureMode.UI_TREE_AND_SCREENSHOT &&
+            currentScreenData.captureMode != ScreenCaptureMode.UI_TREE_AND_SCREENSHOT
+        ) {
+            currentScreenData = captureScreen(captureMode) ?: currentScreenData
+        }
         traceStore.recordPlan(traceId, plan)
-        onProgress("[0/$MAX_ROUNDS] 规划完成：${plan.taskType} / ${plan.safetyMode}")
+        Timber.i("[AgentTask] captureMode=$captureMode taskType=${plan.taskType} goal=$userGoal")
+        onProgress("[0/$MAX_ROUNDS] 规划完成：${plan.taskType} / ${plan.safetyMode} / $captureMode")
         
         val maxRounds = minOf(MAX_ROUNDS, plan.maxRounds)
         while (currentRound < maxRounds && !isTaskComplete) {
@@ -250,7 +257,7 @@ class AgentExecutor private constructor() {
                     delay(OPEN_APP_DELAY)
 
                     // 截图验证
-                    currentScreenData = captureScreen()
+                    currentScreenData = captureScreen(captureMode)
                     if (currentScreenData == null) {
                         return fail("无法捕获屏幕数据")
                     }
@@ -283,7 +290,7 @@ class AgentExecutor private constructor() {
                 )
 
                 if (shouldCleanupOpenAppImmediately(plan, response, executionResult)) {
-                    val afterOpenScreen = captureScreen() ?: screenData
+                    val afterOpenScreen = captureScreen(ScreenCaptureMode.UI_TREE_ONLY) ?: screenData
                     cleanupAfterCompletedPlan(traceId, currentRound + 1, plan, afterOpenScreen, onProgress)
                     isTaskComplete = true
                     break
@@ -321,7 +328,7 @@ class AgentExecutor private constructor() {
                 
                 // 截图验证
                 onProgress("[$currentRound/$maxRounds] 屏幕捕获验证并提取 UI 树")
-                currentScreenData = captureScreen()
+                currentScreenData = captureScreen(captureMode)
                 if (currentScreenData == null) {
                     return fail("无法捕获屏幕数据")
                 }
@@ -511,7 +518,7 @@ class AgentExecutor private constructor() {
         )
         delay(700)
 
-        val afterPackage = captureScreen()?.currentPackage
+        val afterPackage = captureScreen(ScreenCaptureMode.UI_TREE_ONLY)?.currentPackage
         if (afterPackage != VISION_AGENT_PACKAGE) {
             Timber.w("[AgentTask] cleanup BACK did not return to Agent, package=$afterPackage")
             val reopenAgent = AgentResponse(
@@ -527,7 +534,7 @@ class AgentExecutor private constructor() {
             traceStore.recordStep(
                 sessionId = traceId,
                 round = round + 1,
-                screenData = captureScreen() ?: screenData,
+                screenData = captureScreen(ScreenCaptureMode.UI_TREE_ONLY) ?: screenData,
                 response = reopenAgent,
                 executionResult = reopenResult,
                 reflection = null,
@@ -617,6 +624,7 @@ class AgentExecutor private constructor() {
         prompt.append("当前应用包名: ${currentScreenData.currentPackage ?: "未知"}\n")
         prompt.append("当前 UI 树是否可用: ${hasUsableUiTree(currentScreenData.uiTreeText)}\n")
         prompt.append("当前真实截图是否可用: ${currentScreenData.hasRealScreenshot}\n")
+        prompt.append("当前感知采集模式: ${currentScreenData.captureMode}\n")
         prompt.append("\n")
         prompt.append(plan.toPromptText())
         prompt.append(reflection.toPromptText())
@@ -702,10 +710,67 @@ class AgentExecutor private constructor() {
      * 如果 MediaProjection 不可用，返回包含真实 UI 树但空白 Bitmap 的 ScreenData，
      * 而不是 null，避免多轮对话因屏幕捕获失败而中断。
      */
-    private suspend fun captureScreen(): ScreenData? {
+    private fun resolveCaptureMode(
+        plan: AgentPlan,
+        userGoal: String,
+        screenData: ScreenData
+    ): ScreenCaptureMode {
+        if (!hasUsableUiTree(screenData.uiTreeText)) {
+            return ScreenCaptureMode.UI_TREE_AND_SCREENSHOT
+        }
+
+        if (containsVisualNeed(userGoal)) {
+            return ScreenCaptureMode.UI_TREE_AND_SCREENSHOT
+        }
+
+        return when (plan.taskType) {
+            TaskType.DEVICE_CONTROL,
+            TaskType.SYSTEM_NAVIGATION,
+            TaskType.OPEN_APP -> ScreenCaptureMode.UI_TREE_ONLY
+            TaskType.WECHAT_DRAFT,
+            TaskType.BROWSER_SEARCH,
+            TaskType.APP_NAVIGATION,
+            TaskType.GENERAL -> ScreenCaptureMode.UI_TREE_AND_SCREENSHOT
+        }
+    }
+
+    private fun containsVisualNeed(goal: String): Boolean {
+        val normalized = goal.lowercase()
+        val visualKeywords = listOf(
+            "图片",
+            "照片",
+            "相册",
+            "壁纸",
+            "截图",
+            "屏幕",
+            "画面",
+            "颜色",
+            "图标",
+            "二维码",
+            "验证码",
+            "视频",
+            "抖音",
+            "地图",
+            "网页",
+            "浏览器",
+            "识别",
+            "看一下",
+            "看看"
+        )
+        return visualKeywords.any { goal.contains(it) } ||
+            normalized.contains("webview") ||
+            normalized.contains("ocr") ||
+            normalized.contains("camera") ||
+            normalized.contains("image") ||
+            normalized.contains("photo")
+    }
+
+    private suspend fun captureScreen(
+        captureMode: ScreenCaptureMode = ScreenCaptureMode.UI_TREE_ONLY
+    ): ScreenData? {
         return try {
             val service = EdgeAgentAccessibilityService.getInstance() ?: return null
-            val data = service.captureScreenData()
+            val data = service.captureScreenData(captureMode)
             if (data != null) return data
 
             // 降级：直接从无障碍服务提取 UI 树，用空白 Bitmap
@@ -728,7 +793,8 @@ class AgentExecutor private constructor() {
                 screenWidth = displayMetrics.widthPixels,
                 screenHeight = displayMetrics.heightPixels,
                 currentPackage = currentPackage,
-                hasRealScreenshot = false
+                hasRealScreenshot = false,
+                captureMode = ScreenCaptureMode.UI_TREE_ONLY
             )
         } catch (e: Exception) {
             Timber.e(e, "捕获屏幕失败")
