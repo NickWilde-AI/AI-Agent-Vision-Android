@@ -111,7 +111,6 @@
 - `README.md`：项目门面、能力概览、快速开始。
 - `PROJECT_MEMORY.md`：项目长期记忆、设备状态、当前任务线。
 - `docs/PRODUCT.md`：产品定位、用户场景、版本规划、能力边界。
-- `docs/INTERVIEW_EDGE_CLOUD.md`：端云协同、车端 AI、端侧模型部署岗位面试准备。
 - `docs/L1_CAPABILITIES.md`：L1 基础能力清单、边界和 L2 入口。
 - `docs/L1_TEST_MATRIX.md`：L1 真机验收矩阵、通过标准和边界回归。
 - `docs/ARCHITECTURE.md`：当前真实架构、模块职责、主流程。
