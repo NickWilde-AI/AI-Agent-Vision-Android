@@ -51,6 +51,18 @@
 - 手机临时中转路径：`/data/local/tmp/gemma-4-E2B-it.litertlm`
 - 说明：LiteRT-LM 是 Google 官方端侧大模型运行引擎，不是 APK，也不是 Gemini。我们的 APK 是 `app-debug.apk`，它内置 LiteRT-LM 运行库，并读取手机里的 Gemma 模型文件。
 
+## 端侧模型路线记录
+
+- 当前产品主链路仍然是 Android App 内直接调用阿里云百炼 / Qwen-VL-Max。它负责复杂视觉理解、多轮页面判断和高不确定性场景。
+- 当前本地模型 Gemma 4 E2B + LiteRT-LM 已在 Redmi K60 上完成健康检查，但它现阶段只作为端侧模型基座、离线兜底和后续本地推理储备，不作为复杂手机 Agent 的主力。
+- 4bit / 8bit 是模型权重量化精度，不是普通压缩包。4bit 更省内存、更适合移动端，但效果和稳定性依赖量化方案；8bit 更稳但更吃内存。
+- 当前 `.litertlm` 文件不是 GGUF，不能直接用 llama.cpp 的 `Q4_K_M`、`Q8_0` 工具原地量化。若要强控 4bit / 8bit，需要换成 GGUF + llama.cpp / Cactus，或寻找官方已导出的 LiteRT-LM 量化模型。
+- `GGUF + llama.cpp`：模型生态大、量化选择多，适合做本地 LLM 性能实验；Android 工程集成、多模态输入和 GPU/NPU 加速需要额外适配。
+- `Cactus`：更偏移动端 AI 推理 SDK，适合后续评估 GGUF、本地/云端混合推理和移动端部署体验。
+- 阿里 GUI Agent 路线需要重点跟踪：`Mobile-Agent`、`GUI-Owl`、`GUI-Owl-1.5`。这条线更贴近手机/桌面/浏览器 GUI 自动化，对本项目的多 Agent、反思、记忆、回放和 App 策略库有直接参考价值。
+- 现阶段判断：红米 K60 不是不可用设备，而是可用的低成本基线机。它适合验证 App 架构、权限、UI 树、截图、Trace、RAG 和轻量本地推理；不适合把复杂视觉 Agent 全部压到本地实时运行。
+- 如果后续更换测试机，应优先考虑：16GB 以上内存、更新旗舰 SoC、稳定 GPU/NPU 推理支持、良好散热、可长期开发者模式调试，而不是只看跑分。
+
 ## 已实现能力
 
 - 云端兜底模型已切换到阿里云 / Qwen-VL-Max，用于视觉能力和复杂场景兜底。

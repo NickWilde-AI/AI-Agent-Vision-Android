@@ -278,6 +278,28 @@ confidence=0.95
 inferenceTimeMs=18983
 ```
 
+### 端侧模型选型
+
+当前架构采用混合模型策略：
+
+- 云端主链路：Qwen-VL-Max。
+- 本地已跑通链路：Gemma 4 E2B + LiteRT-LM。
+- 后续量化实验链路：GGUF + llama.cpp / Cactus。
+- GUI Agent 对标链路：阿里 Mobile-Agent / GUI-Owl。
+
+技术含义：
+
+- LiteRT-LM 是 Android 端侧模型运行引擎，`.litertlm` 是其模型包格式。
+- GGUF 是 llama.cpp 生态常用模型格式，便于选择 `Q4_K_M`、`Q8_0` 等 4bit / 8bit 量化版本。
+- Cactus 更偏移动端 SDK，后续可用于评估本地模型、混合推理和移动端部署效率。
+- GUI-Owl / Mobile-Agent 更贴近本项目目标，可作为多 Agent、屏幕理解、GUI grounding、反思和长任务策略设计参考。
+
+当前设备判断：
+
+- Redmi K60 是可用基线机，不是最终性能代表。
+- K60 适合验证 App 架构、权限链路、无障碍 UI 树、截图采集、Trace、RAG、L1/L2 任务和轻量本地模型健康检查。
+- 复杂视觉 Agent 若要求端侧实时运行，应使用更强 GPU/NPU、更多内存和更好散热的旗舰设备做第二阶段验证。
+
 ### UITreeExtractor
 
 职责：
