@@ -66,7 +66,8 @@
 ## 已实现能力
 
 - 云端兜底模型已切换到阿里云 / Qwen-VL-Max，用于视觉能力和复杂场景兜底。
-- 产品执行策略已调整：当前暂时保持阿里千问为云端主链路；本地 Gemma 先作为健康检查和后续端侧推理储备。
+- 产品执行策略已调整：复杂视觉、多轮页面理解和 App 操作继续以阿里千问为云端主链路；设备控制、文本输入等本地优先场景由 `EdgeCloudRouter` 显式路由。
+- 已新增 `EdgeCloudRouter`：根据意图、云端可用性、本地模型可用性和 L1 兜底能力，输出 `CLOUD_AGENT`、`LOCAL_SINGLE_ROUND` 或 `DETERMINISTIC_L1`，并写入 AgentTrace。
 - 已新增 L1 安全兜底路由 `L1CommandRouter`：
   - 调高/调低音量。
   - 媒体静音/取消静音、播放暂停、上一首、下一首。
@@ -91,14 +92,14 @@
 - `INPUT_TEXT` 执行成功后，会基于无障碍窗口状态尝试收起软键盘；如果模型点击了输入框导致键盘弹起，执行层会调用无障碍返回键关闭。
 - `OPEN_APP` 到达目标包名后会立即判定任务达成，避免模型继续重复点击；开发验收模式下会记录收尾动作并尝试返回 VisionAgent 控制台。
 - AgentTrace 已支持 JSONL 日志记录和最新会话回放。
-- `view_logs.sh --replay` 已支持可读化回放最新 Trace。
+- `view_logs.sh --replay` 已支持可读化回放最新 Trace，包括端云路由决策和本地模型诊断。
 - 已基于无障碍 UI 树摘要建立本地视觉抽象层。
 - 已接入 Gemma LiteRT-LM 本地模型链路：
   - `GemmaLiteRtModelEngine`
   - `LocalModelEngineProvider`
   - `AgentResponseJsonParser`
   - 本地运行时加载、推理或 JSON 解析失败时，安全回退到 `NO_ACTION`。
-- 已增加“本地模型检查”按钮，用于执行一次有超时限制的本地 Gemma 推理烟测，并展示成功、失败、超时、耗时和原始响应。
+- 已增加“本地模型检查”按钮，用于执行一次有超时限制的本地 Gemma 推理烟测，并展示成功、失败、超时、耗时和原始响应；健康检查结果会写入 AgentTrace。
 - App 启动时只检测本地模型是否就绪，不再强行加载 2.4GB 模型；完整运行时加载延迟到首次本地推理。
 - 已增加无线部署辅助脚本：`deploy_device.sh`。
 - 已增加模型推送脚本：`push_gemma_model.sh`。

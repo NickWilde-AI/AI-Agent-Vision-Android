@@ -81,6 +81,26 @@ for raw in sys.stdin:
             plan.get("safetyMode", ""),
             plan.get("targetPackage", "")
         ))
+    elif event_type == "edge_cloud_decision":
+        decision = event.get("decision") or {}
+        print("端云路由: mode={} fallback={} intent={} privacy={} reason={}".format(
+            decision.get("primaryMode", ""),
+            decision.get("fallbackMode", ""),
+            decision.get("intentType", ""),
+            decision.get("privacyClass", ""),
+            decision.get("reason", "")
+        ))
+    elif event_type == "model_diagnostic":
+        model = event.get("model") or {}
+        response = event.get("response") or {}
+        print("模型诊断: success={} model={} version={} action={} elapsedMs={} error={}".format(
+            event.get("success"),
+            model.get("name", ""),
+            model.get("version", ""),
+            response.get("action", "none"),
+            event.get("elapsedMs", 0),
+            event.get("error", "")
+        ))
     elif event_type == "step":
         screen = event.get("screen") or {}
         response = event.get("response") or {}

@@ -10,6 +10,7 @@ import com.tencent.edgeagent.data.inference.ILocalModelEngine
 import com.tencent.edgeagent.data.inference.LocalModelEngineProvider
 import com.tencent.edgeagent.data.inference.LocalModelManager
 import com.tencent.edgeagent.data.inference.ModelInfo
+import com.tencent.edgeagent.data.trace.AgentTraceStore
 import com.tencent.edgeagent.domain.agent.AgentOrchestrator
 import com.tencent.edgeagent.domain.agent.AgentRunResult
 import com.tencent.edgeagent.domain.model.AgentResponse
@@ -37,6 +38,7 @@ class MainViewModel : ViewModel() {
     private val localModelEngine: ILocalModelEngine = LocalModelEngineProvider.getInstance()
     private val localModelManager = LocalModelManager.getInstance()
     private val cloudFallbackManager = CloudFallbackManager.getInstance()
+    private val traceStore = AgentTraceStore.getInstance()
     private var activeCommandJob: Job? = null
 
     val agentState: StateFlow<AgentState> = orchestrator.agentState
@@ -94,6 +96,8 @@ class MainViewModel : ViewModel() {
 
         activeCommandJob = viewModelScope.launch {
             _executionResult.value = "本地模型健康检查中..."
+            val traceId = traceStore.startSession(LOCAL_MODEL_HEALTH_GOAL)
+            val startTime = System.currentTimeMillis()
             val healthBitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
             try {
                 val response = withTimeout(LOCAL_MODEL_HEALTH_TIMEOUT_MS) {
@@ -103,14 +107,45 @@ class MainViewModel : ViewModel() {
                         uiTree = "UI Tree: health_check"
                     )
                 }
+                val elapsedMs = System.currentTimeMillis() - startTime
                 _lastResponse.value = response
-                _modelInfo.value = localModelManager.buildModelInfoOrFallback(localModelEngine.getModelInfo())
+                val modelInfo = localModelManager.buildModelInfoOrFallback(localModelEngine.getModelInfo())
+                _modelInfo.value = modelInfo
+                traceStore.recordModelDiagnostic(
+                    sessionId = traceId,
+                    modelInfo = modelInfo,
+                    response = response,
+                    success = true,
+                    errorMessage = null,
+                    elapsedMs = elapsedMs
+                )
+                traceStore.finishSession(traceId, success = true, reason = "本地模型健康检查完成")
                 _executionResult.value = "本地模型检查完成：${response.action}，${response.inferenceTimeMs}ms"
                 Timber.i("本地模型健康检查完成: $response")
             } catch (e: TimeoutCancellationException) {
+                val elapsedMs = System.currentTimeMillis() - startTime
+                traceStore.recordModelDiagnostic(
+                    sessionId = traceId,
+                    modelInfo = runCatching { localModelEngine.getModelInfo() }.getOrNull(),
+                    response = null,
+                    success = false,
+                    errorMessage = "timeout:${LOCAL_MODEL_HEALTH_TIMEOUT_MS / 1000}s",
+                    elapsedMs = elapsedMs
+                )
+                traceStore.finishSession(traceId, success = false, reason = "本地模型检查超时")
                 _executionResult.value = "本地模型检查超时：${LOCAL_MODEL_HEALTH_TIMEOUT_MS / 1000}s"
                 Timber.e(e, "本地模型健康检查超时")
             } catch (e: Exception) {
+                val elapsedMs = System.currentTimeMillis() - startTime
+                traceStore.recordModelDiagnostic(
+                    sessionId = traceId,
+                    modelInfo = runCatching { localModelEngine.getModelInfo() }.getOrNull(),
+                    response = null,
+                    success = false,
+                    errorMessage = e.message,
+                    elapsedMs = elapsedMs
+                )
+                traceStore.finishSession(traceId, success = false, reason = "本地模型检查失败：${e.message}")
                 _executionResult.value = "本地模型检查失败：${e.message}"
                 Timber.e(e, "本地模型健康检查失败")
             } finally {
@@ -181,5 +216,6 @@ class MainViewModel : ViewModel() {
 
     companion object {
         private const val LOCAL_MODEL_HEALTH_TIMEOUT_MS = 180_000L
+        private const val LOCAL_MODEL_HEALTH_GOAL = "本地模型健康检查"
     }
 }

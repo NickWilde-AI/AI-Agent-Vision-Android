@@ -78,11 +78,13 @@ class AgentExecutor private constructor() {
     suspend fun executeTask(
         userGoal: String,
         onProgress: (String) -> Unit = {},
-        onDecision: (AgentResponse) -> Unit = {}
+        onDecision: (AgentResponse) -> Unit = {},
+        edgeCloudDecision: EdgeCloudDecision? = null
     ): TaskExecutionResult {
         Timber.i("[AgentTask] start goal=$userGoal")
         onProgress("[0/$MAX_ROUNDS] 开始任务：$userGoal")
         val traceId = traceStore.startSession(userGoal)
+        edgeCloudDecision?.let { traceStore.recordEdgeCloudDecision(traceId, it) }
 
         fun fail(reason: String): TaskExecutionResult.Failure {
             traceStore.finishSession(traceId, success = false, reason = reason)

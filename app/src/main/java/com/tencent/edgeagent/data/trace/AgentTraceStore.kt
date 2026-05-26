@@ -2,6 +2,8 @@ package com.tencent.edgeagent.data.trace
 
 import android.content.Context
 import com.tencent.edgeagent.data.execution.ExecutionResult
+import com.tencent.edgeagent.data.inference.ModelInfo
+import com.tencent.edgeagent.domain.agent.EdgeCloudDecision
 import com.tencent.edgeagent.domain.agent.multi.AgentPlan
 import com.tencent.edgeagent.domain.agent.multi.AgentReflection
 import com.tencent.edgeagent.domain.model.ActionParams
@@ -66,6 +68,41 @@ class AgentTraceStore private constructor() {
                 .put("sessionId", sessionId)
                 .put("timestamp", System.currentTimeMillis())
                 .put("plan", planToJson(plan))
+        )
+    }
+
+    fun recordEdgeCloudDecision(sessionId: String, decision: EdgeCloudDecision) {
+        val file = traceFile(sessionId) ?: return
+        appendEvent(
+            file,
+            JSONObject()
+                .put("type", "edge_cloud_decision")
+                .put("sessionId", sessionId)
+                .put("timestamp", System.currentTimeMillis())
+                .put("decision", edgeCloudDecisionToJson(decision))
+        )
+    }
+
+    fun recordModelDiagnostic(
+        sessionId: String,
+        modelInfo: ModelInfo?,
+        response: AgentResponse?,
+        success: Boolean,
+        errorMessage: String?,
+        elapsedMs: Long
+    ) {
+        val file = traceFile(sessionId) ?: return
+        appendEvent(
+            file,
+            JSONObject()
+                .put("type", "model_diagnostic")
+                .put("sessionId", sessionId)
+                .put("timestamp", System.currentTimeMillis())
+                .put("success", success)
+                .put("elapsedMs", elapsedMs)
+                .put("model", modelInfo?.let(::modelInfoToJson) ?: JSONObject.NULL)
+                .put("response", response?.let(::responseToJson) ?: JSONObject.NULL)
+                .put("error", errorMessage.orEmpty())
         )
     }
 
@@ -140,6 +177,28 @@ class AgentTraceStore private constructor() {
                         val plan = event.optJSONObject("plan")
                         output.append("规划: ${plan?.optString("taskType")} / ${plan?.optString("safetyMode")} / target=${plan?.optString("targetPackage")}\n")
                     }
+                    "edge_cloud_decision" -> {
+                        val decision = event.optJSONObject("decision")
+                        output.append(
+                            "端云路由: mode=${decision?.optString("primaryMode")} " +
+                                "fallback=${decision?.optString("fallbackMode")} " +
+                                "intent=${decision?.optString("intentType")} " +
+                                "privacy=${decision?.optString("privacyClass")} " +
+                                "reason=${decision?.optString("reason")}\n"
+                        )
+                    }
+                    "model_diagnostic" -> {
+                        val model = event.optJSONObject("model")
+                        val response = event.optJSONObject("response")
+                        output.append(
+                            "模型诊断: success=${event.optBoolean("success")} " +
+                                "model=${model?.optString("name")} " +
+                                "version=${model?.optString("version")} " +
+                                "action=${response?.optString("action") ?: "none"} " +
+                                "elapsedMs=${event.optLong("elapsedMs")} " +
+                                "error=${event.optString("error")}\n"
+                        )
+                    }
                     "step" -> {
                         val response = event.optJSONObject("response")
                         val execution = event.optJSONObject("execution")
@@ -212,6 +271,30 @@ class AgentTraceStore private constructor() {
             .put("maxRounds", plan.maxRounds)
             .put("constraints", JSONArray(plan.constraints))
             .put("localKnowledge", plan.localKnowledge.take(MAX_FIELD_CHARS))
+    }
+
+    private fun edgeCloudDecisionToJson(decision: EdgeCloudDecision): JSONObject {
+        return JSONObject()
+            .put("primaryMode", decision.primaryMode.name)
+            .put("fallbackMode", decision.fallbackMode.name)
+            .put("reason", decision.reason)
+            .put("intentType", decision.intentType)
+            .put("cloudAvailable", decision.cloudAvailable)
+            .put("cloudAllowedByIntent", decision.cloudAllowedByIntent)
+            .put("localModelAvailable", decision.localModelAvailable)
+            .put("deterministicFallbackAvailable", decision.deterministicFallbackAvailable)
+            .put("requiresScreenContext", decision.requiresScreenContext)
+            .put("privacyClass", decision.privacyClass)
+            .put("tags", JSONArray(decision.tags))
+    }
+
+    private fun modelInfoToJson(modelInfo: ModelInfo): JSONObject {
+        return JSONObject()
+            .put("name", modelInfo.name)
+            .put("version", modelInfo.version)
+            .put("sizeInMB", modelInfo.sizeInMB.toDouble())
+            .put("supportsMultimodal", modelInfo.supportsMultimodal)
+            .put("avgInferenceTimeMs", modelInfo.avgInferenceTimeMs)
     }
 
     private fun reflectionToJson(reflection: AgentReflection): JSONObject {

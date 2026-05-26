@@ -32,6 +32,7 @@ Domain Layer
   AgentExecutor
   AgentStateMachine
   IntentRouter
+  EdgeCloudRouter
   L1CommandRouter
   PlannerAgent
   ReflectionAgent
@@ -66,6 +67,7 @@ Service Layer
   -> MainViewModel.executeCommand()
   -> AgentOrchestrator.executeCommand()
   -> IntentRouter.parseIntent()
+  -> EdgeCloudRouter.decide()
   -> AgentExecutor.executeTask()
   -> PlannerAgent.plan()
   -> LocalRagEngine.retrieve()
@@ -82,6 +84,23 @@ Service Layer
 ```
 
 当前默认使用阿里千问云端模型自主决定每一轮动作。ADB 只能作为开发脚手架准备权限、安装 APK 和抓日志，不能代替 Agent 完成业务任务。
+
+### 端云协同路由流程
+
+```text
+用户输入
+  -> IntentRouter.parseIntent()
+  -> EdgeCloudRouter.decide()
+  -> CLOUD_AGENT / LOCAL_SINGLE_ROUND / DETERMINISTIC_L1
+  -> AgentTraceStore.recordEdgeCloudDecision()
+```
+
+当前策略：
+
+- 复杂视觉、多轮页面理解、App 操作：优先云端 Qwen-VL-Max。
+- 文本输入、设备控制等敏感或低风险本地任务：优先本地执行或 L1 确定性策略。
+- 云端失败：可回落到 L1 低风险兜底。
+- 本地模型健康检查：写入 AgentTrace，便于面试和调试时证明端侧链路真实跑通。
 
 ### L1 安全兜底流程
 
@@ -251,6 +270,8 @@ App 启动
 
 - 记录任务会话。
 - 记录每轮屏幕状态、模型输出、执行结果和反思信息。
+- 记录端云协同路由决策。
+- 记录本地模型健康检查诊断结果。
 - 支持最新会话可读化回放。
 
 当前配套命令：

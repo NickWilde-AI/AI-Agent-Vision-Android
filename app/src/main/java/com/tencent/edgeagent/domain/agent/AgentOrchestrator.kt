@@ -32,6 +32,7 @@ import timber.log.Timber
 class AgentOrchestrator private constructor(
     private val stateMachine: AgentStateMachine,
     private val intentRouter: IntentRouter,
+    private val edgeCloudRouter: EdgeCloudRouter,
     private val l1CommandRouter: L1CommandRouter,
     private val localModelEngine: ILocalModelEngine,
     private val cloudFallbackManager: CloudFallbackManager,
@@ -58,12 +59,31 @@ class AgentOrchestrator private constructor(
 
             val intent = intentRouter.parseIntent(userInput)
             val l1Response = l1CommandRouter.resolve(userInput)
-            val result = when {
-                cloudFallbackManager.isEnabled() -> {
-                    executeCloudAgent(userInput, intent, l1Response, onProgress, onResponse)
+            val edgeCloudDecision = edgeCloudRouter.decide(
+                intent = intent,
+                cloudAvailable = cloudFallbackManager.isEnabled(),
+                localModelAvailable = isRealLocalModelAvailable(),
+                deterministicFallbackAvailable = l1Response != null
+            )
+            Timber.i(
+                "[AgentFlow] edge-cloud route mode=${edgeCloudDecision.primaryMode} " +
+                    "fallback=${edgeCloudDecision.fallbackMode} reason=${edgeCloudDecision.reason}"
+            )
+
+            val result = when (edgeCloudDecision.primaryMode) {
+                EdgeCloudRouteMode.CLOUD_AGENT -> {
+                    executeCloudAgent(userInput, intent, l1Response, edgeCloudDecision, onProgress, onResponse)
                 }
-                l1Response != null -> executeDeterministicL1(userInput, l1Response, onProgress, onResponse)
-                else -> executeLocalSingleRound(userInput, intent, onProgress, onResponse)
+                EdgeCloudRouteMode.DETERMINISTIC_L1 -> {
+                    if (l1Response != null) {
+                        executeDeterministicL1(userInput, l1Response, edgeCloudDecision, onProgress, onResponse)
+                    } else {
+                        executeLocalSingleRound(userInput, intent, edgeCloudDecision, onProgress, onResponse)
+                    }
+                }
+                EdgeCloudRouteMode.LOCAL_SINGLE_ROUND -> {
+                    executeLocalSingleRound(userInput, intent, edgeCloudDecision, onProgress, onResponse)
+                }
             }
 
             stateMachine.handleEvent(AgentEvent.Reset)
@@ -79,11 +99,13 @@ class AgentOrchestrator private constructor(
     private suspend fun executeDeterministicL1(
         userInput: String,
         response: AgentResponse,
+        edgeCloudDecision: EdgeCloudDecision?,
         onProgress: (String) -> Unit,
         onResponse: (AgentResponse) -> Unit
     ): AgentRunResult {
         Timber.i("[AgentFlow] deterministic L1 fallback mode action=${response.action}")
         val traceId = traceStore.startSession(userInput)
+        edgeCloudDecision?.let { traceStore.recordEdgeCloudDecision(traceId, it) }
         var screenData: ScreenData? = null
         return try {
             onProgress("L1 确定性策略执行中...")
@@ -144,6 +166,7 @@ class AgentOrchestrator private constructor(
         userGoal: String,
         intent: AgentIntent,
         deterministicFallback: AgentResponse?,
+        edgeCloudDecision: EdgeCloudDecision,
         onProgress: (String) -> Unit,
         onResponse: (AgentResponse) -> Unit
     ): AgentRunResult {
@@ -151,7 +174,8 @@ class AgentOrchestrator private constructor(
         val result = agentExecutor.executeTask(
             userGoal = userGoal,
             onProgress = onProgress,
-            onDecision = onResponse
+            onDecision = onResponse,
+            edgeCloudDecision = edgeCloudDecision
         )
 
         return when (result) {
@@ -164,7 +188,7 @@ class AgentOrchestrator private constructor(
                 } else {
                     Timber.w("[AgentFlow] cloud task failed, fallback to deterministic L1: ${result.reason}")
                     onProgress("云端任务失败，使用 L1 安全兜底：${result.reason}")
-                    executeDeterministicL1(userGoal, deterministicFallback, onProgress, onResponse)
+                    executeDeterministicL1(userGoal, deterministicFallback, edgeCloudDecision, onProgress, onResponse)
                 }
             }
         }
@@ -173,11 +197,13 @@ class AgentOrchestrator private constructor(
     private suspend fun executeLocalSingleRound(
         userInput: String,
         intent: AgentIntent,
+        edgeCloudDecision: EdgeCloudDecision?,
         onProgress: (String) -> Unit,
         onResponse: (AgentResponse) -> Unit
     ): AgentRunResult {
         Timber.i("[AgentFlow] local single-round mode intent=${intent.type}")
         val traceId = traceStore.startSession(userInput)
+        edgeCloudDecision?.let { traceStore.recordEdgeCloudDecision(traceId, it) }
         var screenData: ScreenData? = null
         return try {
             val currentScreenData = captureRealScreenData(ScreenCaptureMode.UI_TREE_AND_SCREENSHOT)
@@ -386,6 +412,14 @@ class AgentOrchestrator private constructor(
         )
     }
 
+    private fun isRealLocalModelAvailable(): Boolean {
+        return runCatching {
+            val modelInfo = localModelEngine.getModelInfo()
+            modelInfo.name.contains("mock", ignoreCase = true).not() &&
+                modelInfo.version != "missing"
+        }.getOrDefault(false)
+    }
+
     companion object {
         private const val VISION_AGENT_PACKAGE = "com.tencent.edgeagent"
 
@@ -397,6 +431,7 @@ class AgentOrchestrator private constructor(
                 instance ?: AgentOrchestrator(
                     stateMachine = AgentStateMachine.getInstance(),
                     intentRouter = IntentRouter.getInstance(),
+                    edgeCloudRouter = EdgeCloudRouter.getInstance(),
                     l1CommandRouter = L1CommandRouter.getInstance(),
                     localModelEngine = LocalModelEngineProvider.getInstance(),
                     cloudFallbackManager = CloudFallbackManager.getInstance(),
